@@ -1,4 +1,4 @@
-const {
+import {
   Client,
   GatewayIntentBits,
   Partials,
@@ -6,13 +6,16 @@ const {
   SlashCommandBuilder,
   REST,
   AttachmentBuilder,
-} = require("discord.js");
-const schedule = require("node-schedule");
-const dayjs = require("dayjs");
-const utc = require("dayjs/plugin/utc");
-const isSameOrAfter = require("dayjs/plugin/isSameOrAfter");
-const sqlite3 = require("sqlite3").verbose();
-const { clientId, guildId, token } = require("./config.json");
+} from "discord.js";
+import schedule from "node-schedule";
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc.js";
+import isSameOrAfter from "dayjs/plugin/isSameOrAfter.js";
+import sqlite3 from "sqlite3";
+import dotenv from "dotenv";
+dotenv.config({ path: ".env" });
+
+const { token, clientId, guildId } = process.env;
 
 dayjs.extend(utc);
 dayjs.extend(isSameOrAfter);
@@ -27,7 +30,7 @@ const client = new Client({
   partials: [Partials.Channel],
 });
 
-const db = new sqlite3.Database("./messages.db");
+const db = new sqlite3.Database("../shared/messages.db");
 
 const frequencies = ["once", "daily", "weekly"];
 
@@ -141,7 +144,7 @@ client.once("ready", () => {
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
-  await interaction.deferReply({ ephemeral: true });
+  await interaction.deferReply({ flags: 64 });
   const { commandName, options } = interaction;
 
   if (commandName === "schedule") {
@@ -159,7 +162,7 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     const baseTime = dayjs.utc(timestamp, "YYYY-MM-DD HH:mm");
-    now = dayjs.utc();
+    const now = dayjs.utc();
 
     console.log(`Scheduling message for ${baseTime.format()}`);
     console.log(`Current time is ${now.format()}`);
@@ -179,11 +182,11 @@ client.on("interactionCreate", async (interaction) => {
       [userId],
       (err, row) => {
         if (err) return interaction.editReply("Database error.");
-        if (row.count >= 5) {
-          return interaction.editReply(
-            "You can only have 5 scheduled messages at a time."
-          );
-        }
+        // if (row.count >= 5) {
+        //   return interaction.editReply(
+        //     "You can only have 5 scheduled messages at a time."
+        //   );
+        // }
 
         let times = [];
         if (frequency === "once") times.push(baseTime.toISOString());
@@ -287,6 +290,10 @@ client.on("interactionCreate", async (interaction) => {
           ? newAttachment.url
           : row.attachment_url;
 
+        console.log("Updating message:", id, "by user:", userId);
+        console.log("New content:", updatedContent);
+        console.log("New attachment:", updatedAttachment);
+
         db.run(
           `UPDATE messages SET content = ?, attachment_url = ? WHERE id = ? AND user_id = ?`,
           [updatedContent, updatedAttachment, id, userId],
@@ -315,12 +322,20 @@ function scheduleMessage(id, channelId, isoTime, content, attachmentUrl) {
   const date = new Date(isoTime);
   schedule.scheduleJob(`${id}-${isoTime}`, date, async () => {
     try {
-      const channel = await client.channels.fetch(channelId);
-      if (channel) {
-        const payload = { content };
-        if (attachmentUrl) payload.files = [attachmentUrl];
-        await channel.send(payload);
-      }
+      // Fetch the latest content and attachment from the DB
+      db.get(
+        `SELECT content, attachment_url FROM messages WHERE id = ?`,
+        [id],
+        async (err, row) => {
+          if (err || !row) return;
+          const channel = await client.channels.fetch(channelId);
+          if (channel) {
+            const payload = { content: row.content };
+            if (row.attachment_url) payload.files = [row.attachment_url];
+            await channel.send(payload);
+          }
+        }
+      );
     } catch (err) {
       console.error(`Failed to send scheduled message ${id}:`, err);
     }
