@@ -1,57 +1,76 @@
-/*
-const { REST, Routes } = require("discord.js");
-const { clientId, guildId, token } = require("./config.json");
-const fs = require("node:fs");
-const path = require("node:path");
+import { REST, Routes } from "discord.js";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import dotenv from "dotenv";
+dotenv.config({ path: ".env", quiet: true });
 
-const commands = [];
-// Grab all the command folders from the commands directory you created earlier
-const foldersPath = path.join(__dirname, "commands");
-const commandFolders = fs.readdirSync(foldersPath);
+const { token, clientId, guildId } = process.env;
+console.log("Environment variables:", {
+  token: token ? "✓" : "✗",
+  clientId: clientId ? "✓" : "✗",
+  guildId,
+});
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-for (const folder of commandFolders) {
-  // Grab all the command files from the commands directory you created earlier
-  const commandsPath = path.join(foldersPath, folder);
+console.log("Starting command deployment...");
+(async () => {
+  const commands = [];
+  const commandsPath = path.join(__dirname, "commands");
   const commandFiles = fs
     .readdirSync(commandsPath)
     .filter((file) => file.endsWith(".js"));
-  // Grab the SlashCommandBuilder#toJSON() output of each command's data for deployment
+  console.log("Command files found:", commandFiles);
+
   for (const file of commandFiles) {
-    const filePath = path.join(commandsPath, file);
-    const command = require(filePath);
-    if ("data" in command && "execute" in command) {
-      commands.push(command.data.toJSON());
-    } else {
-      console.log(
-        `[WARNING] The command at ${filePath} is missing a required "data" or "execute" property.`
-      );
+    console.log("test");
+    try {
+      console.log(`Loading command: ${file}`);
+      const filePath = path.join(commandsPath, file);
+      console.log(filePath);
+      
+      const command = await import(filePath);
+      console.log(command);
+
+      if ("data" in command.default && "execute" in command.default) {
+        commands.push(command.default.data.toJSON());
+        console.log(`✓ Successfully loaded: ${command.default.data.name}`);
+      } else {
+        console.log(
+          `[WARNING] The command at ${filePath} is missing a required "data" or "execute" property.`
+        );
+      }
+    } catch (error) {
+      console.error(`[ERROR] Failed to load command ${file}:`, error.message);
     }
   }
-}
 
-// Construct and prepare an instance of the REST module
-const rest = new REST().setToken(token);
+  console.log(`Total commands loaded: ${commands.length}`);
+  // Construct and prepare an instance of the REST module
+  const rest = new REST().setToken(token);
 
-// and deploy your commands!
-(async () => {
   try {
-    console.log(
-      `Started refreshing ${commands.length} application (/) commands.`
-    );
+    console.log(`Registering ${commands.length} application (/) commands...`);
 
-    // The put method is used to fully refresh all commands in the guild with the current set
-    const data = await rest.put(
-      Routes.applicationGuildCommands(clientId, guildId),
-      // Routes.applicationCommands(clientId),
-      { body: commands }
-    );
-
-    console.log(
-      `Successfully reloaded ${data.length} application (/) commands.`
-    );
+    let data;
+    if (guildId) {
+      data = await rest.put(
+        Routes.applicationGuildCommands(clientId, guildId),
+        {
+          body: commands,
+        }
+      );
+      console.log(
+        `Registered ${data.length} application (/) commands for guild ${guildId}`
+      );
+    } else {
+      data = await rest.put(Routes.applicationCommands(clientId), {
+        body: commands,
+      });
+      console.log(`Registered ${data.length} global application (/) commands`);
+    }
   } catch (error) {
-    // And of course, make sure you catch and log any errors!
-    console.error(error);
+    console.error("Deployment error:", error);
   }
 })();
-*/
