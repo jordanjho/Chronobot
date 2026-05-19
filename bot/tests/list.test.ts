@@ -11,14 +11,20 @@ vi.mock('../src/utils/logger.js', () => ({
   },
 }));
 
-// Mock database
-const mockDbAll = vi.fn();
-vi.mock('../src/db/database.js', () => ({
-  default: {
-    run: vi.fn(),
-    get: vi.fn(),
-    all: mockDbAll,
-  },
+// Mock JobRepository
+const mockRepo = {
+  countByUserId: vi.fn(),
+  create: vi.fn(),
+  findById: vi.fn(),
+  findAllByUserId: vi.fn(),
+  findAll: vi.fn(),
+  updateSendTimes: vi.fn(),
+  updateContent: vi.fn(),
+  delete: vi.fn(),
+  markCompleted: vi.fn(),
+};
+vi.mock('../src/repositories/JobRepository.js', () => ({
+  jobRepository: mockRepo,
 }));
 
 const { default: listCommand } = await import('../src/commands/list.js');
@@ -40,138 +46,126 @@ describe('list command', () => {
   });
 
   it('should reply with no messages when db returns empty array', async () => {
-    mockDbAll.mockImplementation((_sql: string, _params: unknown[], cb: (err: Error | null, rows: unknown[]) => void) => {
-      cb(null, []);
-    });
+    mockRepo.findAllByUserId.mockResolvedValue([]);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await listCommand.execute(interaction as any);
 
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(interaction.editReply).toHaveBeenCalledWith('No messages scheduled.');
-  });
-
-  it('should reply with no messages on db error', async () => {
-    mockDbAll.mockImplementation((_sql: string, _params: unknown[], cb: (err: Error | null, rows: unknown[]) => void) => {
-      cb(new Error('DB error'), []);
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await listCommand.execute(interaction as any);
-
-    await new Promise(resolve => setTimeout(resolve, 0));
     expect(interaction.editReply).toHaveBeenCalledWith('No messages scheduled.');
   });
 
   it('should list scheduled messages when rows are returned', async () => {
-    const rows = [
+    const jobs = [
       {
-        id: 1,
-        channel_id: 'chan-1',
-        send_times: JSON.stringify(['2030-01-01T12:00:00.000Z']),
+        id: 'uuid-1',
+        channelId: 'chan-1',
+        sendTimes: ['2030-01-01T12:00:00.000Z'],
         content: 'Hello world',
         frequency: 'once',
-        attachment_url: null,
-        user_id: 'user-123',
+        attachmentUrl: null,
+        userId: 'user-123',
+        status: 'QUEUED',
+        createdAt: new Date(),
+        updatedAt: new Date(),
       },
     ];
 
-    mockDbAll.mockImplementation((_sql: string, _params: unknown[], cb: (err: Error | null, rows: unknown[]) => void) => {
-      cb(null, rows);
-    });
+    mockRepo.findAllByUserId.mockResolvedValue(jobs);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await listCommand.execute(interaction as any);
 
-    await new Promise(resolve => setTimeout(resolve, 0));
     expect(interaction.editReply).toHaveBeenCalledOnce();
     const reply = interaction.editReply.mock.calls[0][0] as string;
     expect(reply).toContain('**Your Scheduled Messages:**');
-    expect(reply).toContain('ID: 1');
+    expect(reply).toContain('ID: uuid-1');
     expect(reply).toContain('Hello world');
     expect(reply).toContain('<#chan-1>');
   });
 
-  it('should show [media only] when content is null', async () => {
-    const rows = [
+  it('should show [media only] when content is empty string', async () => {
+    const jobs = [
       {
-        id: 2,
-        channel_id: 'chan-2',
-        send_times: JSON.stringify(['2030-06-01T00:00:00.000Z']),
-        content: null,
+        id: 'uuid-2',
+        channelId: 'chan-2',
+        sendTimes: ['2030-06-01T00:00:00.000Z'],
+        content: '',
         frequency: 'once',
-        attachment_url: 'https://example.com/image.png',
-        user_id: 'user-123',
+        attachmentUrl: 'https://example.com/image.png',
+        userId: 'user-123',
+        status: 'QUEUED',
+        createdAt: new Date(),
+        updatedAt: new Date(),
       },
     ];
 
-    mockDbAll.mockImplementation((_sql: string, _params: unknown[], cb: (err: Error | null, rows: unknown[]) => void) => {
-      cb(null, rows);
-    });
+    mockRepo.findAllByUserId.mockResolvedValue(jobs);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await listCommand.execute(interaction as any);
 
-    await new Promise(resolve => setTimeout(resolve, 0));
     const reply = interaction.editReply.mock.calls[0][0] as string;
     expect(reply).toContain('[media only]');
   });
 
-  it('should show None when attachment_url is null', async () => {
-    const rows = [
+  it('should show None when attachmentUrl is null', async () => {
+    const jobs = [
       {
-        id: 3,
-        channel_id: 'chan-3',
-        send_times: JSON.stringify(['2030-06-01T00:00:00.000Z']),
+        id: 'uuid-3',
+        channelId: 'chan-3',
+        sendTimes: ['2030-06-01T00:00:00.000Z'],
         content: 'Test message',
         frequency: 'once',
-        attachment_url: null,
-        user_id: 'user-123',
+        attachmentUrl: null,
+        userId: 'user-123',
+        status: 'QUEUED',
+        createdAt: new Date(),
+        updatedAt: new Date(),
       },
     ];
 
-    mockDbAll.mockImplementation((_sql: string, _params: unknown[], cb: (err: Error | null, rows: unknown[]) => void) => {
-      cb(null, rows);
-    });
+    mockRepo.findAllByUserId.mockResolvedValue(jobs);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await listCommand.execute(interaction as any);
 
-    await new Promise(resolve => setTimeout(resolve, 0));
     const reply = interaction.editReply.mock.calls[0][0] as string;
     expect(reply).toContain('Attachment: None');
   });
 
   it('should show separator between multiple messages', async () => {
-    const rows = [
+    const jobs = [
       {
-        id: 1,
-        channel_id: 'chan-1',
-        send_times: JSON.stringify(['2030-01-01T12:00:00.000Z']),
+        id: 'uuid-1',
+        channelId: 'chan-1',
+        sendTimes: ['2030-01-01T12:00:00.000Z'],
         content: 'Message 1',
         frequency: 'once',
-        attachment_url: null,
-        user_id: 'user-123',
+        attachmentUrl: null,
+        userId: 'user-123',
+        status: 'QUEUED',
+        createdAt: new Date(),
+        updatedAt: new Date(),
       },
       {
-        id: 2,
-        channel_id: 'chan-2',
-        send_times: JSON.stringify(['2030-02-01T12:00:00.000Z']),
+        id: 'uuid-2',
+        channelId: 'chan-2',
+        sendTimes: ['2030-02-01T12:00:00.000Z'],
         content: 'Message 2',
         frequency: 'once',
-        attachment_url: null,
-        user_id: 'user-123',
+        attachmentUrl: null,
+        userId: 'user-123',
+        status: 'QUEUED',
+        createdAt: new Date(),
+        updatedAt: new Date(),
       },
     ];
 
-    mockDbAll.mockImplementation((_sql: string, _params: unknown[], cb: (err: Error | null, rows: unknown[]) => void) => {
-      cb(null, rows);
-    });
+    mockRepo.findAllByUserId.mockResolvedValue(jobs);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await listCommand.execute(interaction as any);
 
-    await new Promise(resolve => setTimeout(resolve, 0));
     const reply = interaction.editReply.mock.calls[0][0] as string;
     expect(reply).toContain('---');
     expect(reply).toContain('Message 1');
@@ -180,9 +174,9 @@ describe('list command', () => {
 
   it('should query messages by user id', async () => {
     interaction.user = { id: 'my-user-id' };
-    mockDbAll.mockImplementation((_sql: string, params: unknown[], cb: (err: Error | null, rows: unknown[]) => void) => {
-      expect(params[0]).toBe('my-user-id');
-      cb(null, []);
+    mockRepo.findAllByUserId.mockImplementation((userId: string) => {
+      expect(userId).toBe('my-user-id');
+      return Promise.resolve([]);
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -190,26 +184,26 @@ describe('list command', () => {
   });
 
   it('should show attachment url when present', async () => {
-    const rows = [
+    const jobs = [
       {
-        id: 4,
-        channel_id: 'chan-4',
-        send_times: JSON.stringify(['2030-06-01T00:00:00.000Z']),
+        id: 'uuid-4',
+        channelId: 'chan-4',
+        sendTimes: ['2030-06-01T00:00:00.000Z'],
         content: 'Has attachment',
         frequency: 'once',
-        attachment_url: 'https://cdn.example.com/file.gif',
-        user_id: 'user-123',
+        attachmentUrl: 'https://cdn.example.com/file.gif',
+        userId: 'user-123',
+        status: 'QUEUED',
+        createdAt: new Date(),
+        updatedAt: new Date(),
       },
     ];
 
-    mockDbAll.mockImplementation((_sql: string, _params: unknown[], cb: (err: Error | null, rows: unknown[]) => void) => {
-      cb(null, rows);
-    });
+    mockRepo.findAllByUserId.mockResolvedValue(jobs);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await listCommand.execute(interaction as any);
 
-    await new Promise(resolve => setTimeout(resolve, 0));
     const reply = interaction.editReply.mock.calls[0][0] as string;
     expect(reply).toContain('https://cdn.example.com/file.gif');
   });
