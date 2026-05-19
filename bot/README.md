@@ -16,7 +16,7 @@ Chronobot is a Discord scheduling bot that allows users to automate sending mess
 - Node.js 22+
 - TypeScript (strict mode)
 - discord.js v14
-- sqlite3
+- PostgreSQL (via Prisma ORM)
 - node-schedule
 - dayjs (+ UTC plugin)
 - Pino (structured logging)
@@ -37,20 +37,30 @@ Chronobot is a Discord scheduling bot that allows users to automate sending mess
    ```
 
 3. **Configure environment variables:**
-   - Create a `.env` file in the `bot/` directory:
+   - Create a `.env` file in the `bot/` directory (see `.env.example` for reference):
      ```env
      DISCORD_TOKEN=your_bot_token_here
      CLIENT_ID=your_client_id_here
      GUILD_ID=your_guild_id_here   # optional, for guild-specific commands
+     DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require
      LOG_LEVEL=info                # optional, default: info
      ```
 
-4. **Deploy slash commands (first time or after changes):**
+4. **Set up the database:**
+   1. Create a free account at [neon.tech](https://neon.tech)
+   2. Create a new project and copy the connection string
+   3. Add `DATABASE_URL=<connection string>` to your `.env` file
+   4. Run the migrations:
+      ```bash
+      npx prisma migrate deploy
+      ```
+
+5. **Deploy slash commands (first time or after changes):**
    ```bash
    npm run deploy-commands
    ```
 
-5. **Run the bot:**
+6. **Run the bot:**
    ```bash
    npm start
    ```
@@ -81,18 +91,22 @@ npm run build
 
 ```
 bot/
+  prisma/
+    schema.prisma   Prisma schema (PostgreSQL, Job model)
+    migrations/     SQL migration files
   src/
-    commands/     delete.ts, edit.ts, help.ts, list.ts, schedule.ts
-    db/           database.ts
-    events/       interactionCreate.ts, ready.ts
-    scheduler/    cancel.ts, restore.ts, scheduleMessage.ts
-    utils/        logger.ts
-    config.ts     Environment variable validation (Zod)
-    discord.d.ts  Discord.js Client type augmentation
-    index.ts      Entry point
-    types.ts      Shared TypeScript types
+    commands/       delete.ts, edit.ts, help.ts, list.ts, schedule.ts
+    db/             prisma.ts (Prisma client singleton)
+    events/         interactionCreate.ts, ready.ts
+    repositories/   JobRepository.ts
+    scheduler/      cancel.ts, restore.ts, scheduleMessage.ts
+    utils/          logger.ts
+    config.ts       Environment variable validation (Zod)
+    discord.d.ts    Discord.js Client type augmentation
+    index.ts        Entry point
+    types.ts        Shared TypeScript types
   tests/
-    helpers/      db.ts, interaction.ts
+    helpers/        interaction.ts
     cancel.test.ts, delete.test.ts, edit.test.ts, help.test.ts
     list.test.ts, restore.test.ts, schedule.test.ts
   tsconfig.json

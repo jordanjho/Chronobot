@@ -11,15 +11,20 @@ vi.mock('../src/utils/logger.js', () => ({
   },
 }));
 
-// Mock database
-const mockDbGet = vi.fn();
-const mockDbRun = vi.fn();
-vi.mock('../src/db/database.js', () => ({
-  default: {
-    run: mockDbRun,
-    get: mockDbGet,
-    all: vi.fn(),
-  },
+// Mock JobRepository
+const mockRepo = {
+  countByUserId: vi.fn(),
+  create: vi.fn(),
+  findById: vi.fn(),
+  findAllByUserId: vi.fn(),
+  findAll: vi.fn(),
+  updateSendTimes: vi.fn(),
+  updateContent: vi.fn(),
+  delete: vi.fn(),
+  markCompleted: vi.fn(),
+};
+vi.mock('../src/repositories/JobRepository.js', () => ({
+  jobRepository: mockRepo,
 }));
 
 const { default: editCommand } = await import('../src/commands/edit.js');
@@ -30,8 +35,10 @@ describe('edit command', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     interaction = createMockInteraction({ commandName: 'edit' });
-    interaction.options.getInteger.mockReturnValue(10);
-    interaction.options.getString.mockReturnValue(null);
+    interaction.options.getString.mockImplementation((name: string) => {
+      if (name === 'id') return 'uuid-10';
+      return null;
+    });
     interaction.options.getAttachment.mockReturnValue(null);
   });
 
@@ -44,61 +51,55 @@ describe('edit command', () => {
   });
 
   it('should reply with error if message not found', async () => {
-    mockDbGet.mockImplementation((_sql: string, _params: unknown[], cb: (err: Error | null, row: undefined) => void) => {
-      cb(null, undefined);
-    });
+    mockRepo.findById.mockResolvedValue(null);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await editCommand.execute(interaction as any);
 
-    await new Promise(resolve => setTimeout(resolve, 0));
     expect(interaction.editReply).toHaveBeenCalledWith(
       'Message not found or you do not have permission to edit this message.',
     );
   });
 
-  it('should reply with error if db get returns error', async () => {
-    mockDbGet.mockImplementation((_sql: string, _params: unknown[], cb: (err: Error | null, row: undefined) => void) => {
-      cb(new Error('DB error'), undefined);
-    });
+  it('should reply with error if wrong user', async () => {
+    mockRepo.findById.mockResolvedValue({ id: 'uuid-10', userId: 'other-user', content: 'old', attachmentUrl: null });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await editCommand.execute(interaction as any);
 
-    await new Promise(resolve => setTimeout(resolve, 0));
     expect(interaction.editReply).toHaveBeenCalledWith(
       'Message not found or you do not have permission to edit this message.',
     );
   });
 
   it('should update message with new content', async () => {
-    const existingRow = { content: 'old content', attachment_url: null };
-    interaction.options.getString.mockReturnValue('new content');
+    const existingJob = { id: 'uuid-10', userId: 'user-123', content: 'old content', attachmentUrl: null };
+    mockRepo.findById.mockResolvedValue(existingJob);
+    mockRepo.updateContent.mockResolvedValue({ ...existingJob, content: 'new content' });
 
-    mockDbGet.mockImplementation((_sql: string, _params: unknown[], cb: (err: Error | null, row: typeof existingRow) => void) => {
-      cb(null, existingRow);
-    });
-    mockDbRun.mockImplementation((_sql: string, _params: unknown[], cb: (this: { changes: number }, err: Error | null) => void) => {
-      cb.call({ changes: 1 }, null);
+    interaction.options.getString.mockImplementation((name: string) => {
+      if (name === 'id') return 'uuid-10';
+      if (name === 'content') return 'new content';
+      return null;
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await editCommand.execute(interaction as any);
 
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(interaction.editReply).toHaveBeenCalledWith('Updated message 10');
+    expect(interaction.editReply).toHaveBeenCalledWith('Updated message uuid-10');
   });
 
   it('should keep old content when no new content provided', async () => {
-    const existingRow = { content: 'original content', attachment_url: null };
-    interaction.options.getString.mockReturnValue(null);
-
-    mockDbGet.mockImplementation((_sql: string, _params: unknown[], cb: (err: Error | null, row: typeof existingRow) => void) => {
-      cb(null, existingRow);
+    const existingJob = { id: 'uuid-10', userId: 'user-123', content: 'original content', attachmentUrl: null };
+    mockRepo.findById.mockResolvedValue(existingJob);
+    mockRepo.updateContent.mockImplementation((_id: string, _userId: string, content: string) => {
+      expect(content).toBe('original content');
+      return Promise.resolve({ ...existingJob, content });
     });
-    mockDbRun.mockImplementation((_sql: string, params: unknown[], cb: (this: { changes: number }, err: Error | null) => void) => {
-      expect(params[0]).toBe('original content');
-      cb.call({ changes: 1 }, null);
+
+    interaction.options.getString.mockImplementation((name: string) => {
+      if (name === 'id') return 'uuid-10';
+      return null;
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -106,69 +107,63 @@ describe('edit command', () => {
   });
 
   it('should update attachment when new one provided', async () => {
-    const existingRow = { content: 'content', attachment_url: 'https://old.example.com/img.png' };
+    const existingJob = { id: 'uuid-10', userId: 'user-123', content: 'content', attachmentUrl: 'https://old.example.com/img.png' };
+    mockRepo.findById.mockResolvedValue(existingJob);
+    mockRepo.updateContent.mockImplementation((_id: string, _userId: string, _content: string, attachmentUrl: string) => {
+      expect(attachmentUrl).toBe('https://new.example.com/img.png');
+      return Promise.resolve({ ...existingJob, attachmentUrl });
+    });
+
     interaction.options.getAttachment.mockReturnValue({ url: 'https://new.example.com/img.png' });
 
-    mockDbGet.mockImplementation((_sql: string, _params: unknown[], cb: (err: Error | null, row: typeof existingRow) => void) => {
-      cb(null, existingRow);
-    });
-    mockDbRun.mockImplementation((_sql: string, params: unknown[], cb: (this: { changes: number }, err: Error | null) => void) => {
-      expect(params[1]).toBe('https://new.example.com/img.png');
-      cb.call({ changes: 1 }, null);
-    });
-
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await editCommand.execute(interaction as any);
   });
 
-  it('should reply with error when update has 0 changes', async () => {
-    const existingRow = { content: 'content', attachment_url: null };
-
-    mockDbGet.mockImplementation((_sql: string, _params: unknown[], cb: (err: Error | null, row: typeof existingRow) => void) => {
-      cb(null, existingRow);
-    });
-    mockDbRun.mockImplementation((_sql: string, _params: unknown[], cb: (this: { changes: number }, err: Error | null) => void) => {
-      cb.call({ changes: 0 }, null);
-    });
+  it('should reply with error when updateContent returns null', async () => {
+    const existingJob = { id: 'uuid-10', userId: 'user-123', content: 'content', attachmentUrl: null };
+    mockRepo.findById.mockResolvedValue(existingJob);
+    mockRepo.updateContent.mockResolvedValue(null);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await editCommand.execute(interaction as any);
 
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(interaction.editReply).toHaveBeenCalledWith(
-      'Failed to update message or no changes made.',
-    );
-  });
-
-  it('should reply with error when db run fails', async () => {
-    const existingRow = { content: 'content', attachment_url: null };
-
-    mockDbGet.mockImplementation((_sql: string, _params: unknown[], cb: (err: Error | null, row: typeof existingRow) => void) => {
-      cb(null, existingRow);
-    });
-    mockDbRun.mockImplementation((_sql: string, _params: unknown[], cb: (this: { changes: number }, err: Error | null) => void) => {
-      cb.call({ changes: 0 }, new Error('Update error'));
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await editCommand.execute(interaction as any);
-
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(interaction.editReply).toHaveBeenCalledWith(
-      'Failed to update message or no changes made.',
-    );
+    expect(interaction.editReply).toHaveBeenCalledWith('Failed to update message or no changes made.');
   });
 
   it('should query by both message id and user id', async () => {
     interaction.user = { id: 'owner-456' };
-    interaction.options.getInteger.mockReturnValue(77);
+    interaction.options.getString.mockImplementation((name: string) => {
+      if (name === 'id') return 'uuid-77';
+      return null;
+    });
 
-    mockDbGet.mockImplementation((_sql: string, params: unknown[], _cb: unknown) => {
-      expect(params[0]).toBe(77);
-      expect(params[1]).toBe('owner-456');
+    mockRepo.findById.mockImplementation((id: string) => {
+      expect(id).toBe('uuid-77');
+      return Promise.resolve(null);
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await editCommand.execute(interaction as any);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      'Message not found or you do not have permission to edit this message.',
+    );
+  });
+
+  it('should keep old attachment when no new one provided', async () => {
+    const existingJob = { id: 'uuid-10', userId: 'user-123', content: 'content', attachmentUrl: 'https://old.example.com/keep.png' };
+    mockRepo.findById.mockResolvedValue(existingJob);
+    mockRepo.updateContent.mockImplementation((_id: string, _userId: string, _content: string, attachmentUrl: string) => {
+      expect(attachmentUrl).toBe('https://old.example.com/keep.png');
+      return Promise.resolve({ ...existingJob, attachmentUrl });
+    });
+
+    interaction.options.getAttachment.mockReturnValue(null);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await editCommand.execute(interaction as any);
+
+    expect(interaction.editReply).toHaveBeenCalledWith('Updated message uuid-10');
   });
 });

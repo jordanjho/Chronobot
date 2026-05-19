@@ -3,7 +3,7 @@ import type { ChatInputCommandInteraction, Client } from 'discord.js';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import scheduleMessage from '../scheduler/scheduleMessage.js';
-import db from '../db/database.js';
+import { jobRepository } from '../repositories/JobRepository.js';
 import logger from '../utils/logger.js';
 
 // Bug 3 fix: extend dayjs plugins locally in every file that uses them
@@ -38,7 +38,6 @@ export default {
     ),
   async execute(interaction: ChatInputCommandInteraction): Promise<void> {
     const { options } = interaction;
-    // The client is available on the interaction for passing to scheduleMessage
     const client = interaction.client as Client;
 
     const frequency = options.getString('frequency') ?? '';
@@ -67,63 +66,44 @@ export default {
       return;
     }
 
-    db.get(
-      `SELECT COUNT(*) as count FROM messages WHERE user_id = ?`,
-      [userId],
-      (err: Error | null, row: { count: number } | undefined) => {
-        if (err) {
-          void interaction.editReply('Database error.');
-          return;
-        }
-        if (!row || row.count >= 5) {
-          void interaction.editReply('You can only have 5 scheduled messages at a time.');
-          return;
-        }
+    const count = await jobRepository.countByUserId(userId);
+    if (count >= 5) {
+      await interaction.editReply('You can only have 5 scheduled messages at a time.');
+      return;
+    }
 
-        const times: string[] = [];
-        if (frequency === 'once') times.push(baseTime.toISOString());
-        else if (frequency === 'daily') {
-          for (let i = 0; i < 7; i++)
-            times.push(baseTime.add(i, 'day').toISOString());
-        }
-        else if (frequency === 'weekly') {
-          for (let i = 0; i < 4; i++)
-            times.push(baseTime.add(i, 'week').toISOString());
-        }
+    const times: string[] = [];
+    if (frequency === 'once') times.push(baseTime.toISOString());
+    else if (frequency === 'daily') {
+      for (let i = 0; i < 7; i++)
+        times.push(baseTime.add(i, 'day').toISOString());
+    }
+    else if (frequency === 'weekly') {
+      for (let i = 0; i < 4; i++)
+        times.push(baseTime.add(i, 'week').toISOString());
+    }
 
-        const finalContent = content;
+    const job = await jobRepository.create({
+      channelId,
+      userId,
+      content,
+      frequency,
+      sendTimes: times,
+      attachmentUrl: attachment?.url ?? null,
+    });
 
-        db.run(
-          `INSERT INTO messages (channel_id, send_times, content, frequency, attachment_url, user_id) VALUES (?, ?, ?, ?, ?, ?)`,
-          [
-            channelId,
-            JSON.stringify(times),
-            finalContent,
-            frequency,
-            attachment?.url ?? null,
-            userId,
-          ],
-          function(this: { lastID: number }, err: Error | null) {
-            if (err) {
-              void interaction.editReply('Failed to schedule message: ' + err.message);
-              return;
-            }
-            const newId = this.lastID;
-            times.forEach((time) =>
-              scheduleMessage(
-                client,
-                newId,
-                channelId,
-                time,
-                finalContent,
-                attachment?.url,
-              ),
-            );
-            logger.info({ command: 'schedule', userId, channelId, messageId: newId }, `Message scheduled with ID ${newId}`);
-            void interaction.editReply(`Message scheduled with ID ${newId}`);
-          },
-        );
-      },
+    times.forEach((time) =>
+      scheduleMessage(
+        client,
+        job.id,
+        channelId,
+        time,
+        content,
+        attachment?.url,
+      ),
     );
+
+    logger.info({ command: 'schedule', userId, channelId, messageId: job.id }, `Message scheduled with ID ${job.id}`);
+    await interaction.editReply(`Message scheduled with ID ${job.id}`);
   },
 };

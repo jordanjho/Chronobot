@@ -17,15 +17,20 @@ vi.mock('../src/scheduler/scheduleMessage.js', () => ({
   default: mockScheduleMessage,
 }));
 
-// Mock database
-const mockDbGet = vi.fn();
-const mockDbRun = vi.fn();
-vi.mock('../src/db/database.js', () => ({
-  default: {
-    run: mockDbRun,
-    get: mockDbGet,
-    all: vi.fn(),
-  },
+// Mock JobRepository
+const mockRepo = {
+  countByUserId: vi.fn(),
+  create: vi.fn(),
+  findById: vi.fn(),
+  findAllByUserId: vi.fn(),
+  findAll: vi.fn(),
+  updateSendTimes: vi.fn(),
+  updateContent: vi.fn(),
+  delete: vi.fn(),
+  markCompleted: vi.fn(),
+};
+vi.mock('../src/repositories/JobRepository.js', () => ({
+  jobRepository: mockRepo,
 }));
 
 const { default: scheduleCommand } = await import('../src/commands/schedule.js');
@@ -104,44 +109,24 @@ describe('schedule command', () => {
   });
 
   it('should reply with error if user already has 5 messages', async () => {
-    mockDbGet.mockImplementation((_sql: string, _params: unknown[], cb: (err: Error | null, row: { count: number }) => void) => {
-      cb(null, { count: 5 });
-    });
+    mockRepo.countByUserId.mockResolvedValue(5);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await scheduleCommand.execute(interaction as any);
 
-    await new Promise(resolve => setTimeout(resolve, 0));
     expect(interaction.editReply).toHaveBeenCalledWith(
       'You can only have 5 scheduled messages at a time.',
     );
   });
 
-  it('should reply with error on database get error', async () => {
-    mockDbGet.mockImplementation((_sql: string, _params: unknown[], cb: (err: Error | null, row: null) => void) => {
-      cb(new Error('DB error'), null);
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await scheduleCommand.execute(interaction as any);
-
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(interaction.editReply).toHaveBeenCalledWith('Database error.');
-  });
-
   it('should schedule a once message successfully', async () => {
-    mockDbGet.mockImplementation((_sql: string, _params: unknown[], cb: (err: Error | null, row: { count: number }) => void) => {
-      cb(null, { count: 0 });
-    });
-    mockDbRun.mockImplementation((_sql: string, _params: unknown[], cb: (this: { lastID: number }, err: Error | null) => void) => {
-      cb.call({ lastID: 1 }, null);
-    });
+    mockRepo.countByUserId.mockResolvedValue(0);
+    mockRepo.create.mockResolvedValue({ id: 'uuid-1', sendTimes: ['2099-12-31T23:59:00.000Z'] });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await scheduleCommand.execute(interaction as any);
 
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(interaction.editReply).toHaveBeenCalledWith('Message scheduled with ID 1');
+    expect(interaction.editReply).toHaveBeenCalledWith('Message scheduled with ID uuid-1');
     expect(mockScheduleMessage).toHaveBeenCalledTimes(1);
   });
 
@@ -153,20 +138,15 @@ describe('schedule command', () => {
       return null;
     });
 
-    mockDbGet.mockImplementation((_sql: string, _params: unknown[], cb: (err: Error | null, row: { count: number }) => void) => {
-      cb(null, { count: 0 });
-    });
-    mockDbRun.mockImplementation((_sql: string, params: unknown[], cb: (this: { lastID: number }, err: Error | null) => void) => {
-      // Verify 7 times stored
-      const times = JSON.parse(params[1] as string) as string[];
-      expect(times).toHaveLength(7);
-      cb.call({ lastID: 2 }, null);
+    mockRepo.countByUserId.mockResolvedValue(0);
+    mockRepo.create.mockImplementation((data: { sendTimes: string[] }) => {
+      expect(data.sendTimes).toHaveLength(7);
+      return Promise.resolve({ id: 'uuid-2', sendTimes: data.sendTimes });
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await scheduleCommand.execute(interaction as any);
 
-    await new Promise(resolve => setTimeout(resolve, 0));
     expect(mockScheduleMessage).toHaveBeenCalledTimes(7);
   });
 
@@ -178,56 +158,38 @@ describe('schedule command', () => {
       return null;
     });
 
-    mockDbGet.mockImplementation((_sql: string, _params: unknown[], cb: (err: Error | null, row: { count: number }) => void) => {
-      cb(null, { count: 0 });
-    });
-    mockDbRun.mockImplementation((_sql: string, params: unknown[], cb: (this: { lastID: number }, err: Error | null) => void) => {
-      const times = JSON.parse(params[1] as string) as string[];
-      expect(times).toHaveLength(4);
-      cb.call({ lastID: 3 }, null);
+    mockRepo.countByUserId.mockResolvedValue(0);
+    mockRepo.create.mockImplementation((data: { sendTimes: string[] }) => {
+      expect(data.sendTimes).toHaveLength(4);
+      return Promise.resolve({ id: 'uuid-3', sendTimes: data.sendTimes });
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await scheduleCommand.execute(interaction as any);
 
-    await new Promise(resolve => setTimeout(resolve, 0));
     expect(mockScheduleMessage).toHaveBeenCalledTimes(4);
   });
 
-  it('should reply with error on db insert failure', async () => {
-    mockDbGet.mockImplementation((_sql: string, _params: unknown[], cb: (err: Error | null, row: { count: number }) => void) => {
-      cb(null, { count: 0 });
-    });
-    mockDbRun.mockImplementation((_sql: string, _params: unknown[], cb: (this: { lastID: number }, err: Error | null) => void) => {
-      cb.call({ lastID: 0 }, new Error('Insert failed'));
-    });
+  it('should reply with error on db create failure', async () => {
+    mockRepo.countByUserId.mockResolvedValue(0);
+    mockRepo.create.mockRejectedValue(new Error('Insert failed'));
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await scheduleCommand.execute(interaction as any);
-
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(interaction.editReply).toHaveBeenCalledWith(
-      expect.stringContaining('Failed to schedule message'),
-    );
+    await expect(scheduleCommand.execute(interaction as any)).rejects.toThrow('Insert failed');
   });
 
   it('should pass attachment url to scheduleMessage', async () => {
     interaction.options.getAttachment.mockReturnValue({ url: 'https://cdn.example.com/img.png' });
 
-    mockDbGet.mockImplementation((_sql: string, _params: unknown[], cb: (err: Error | null, row: { count: number }) => void) => {
-      cb(null, { count: 0 });
-    });
-    mockDbRun.mockImplementation((_sql: string, _params: unknown[], cb: (this: { lastID: number }, err: Error | null) => void) => {
-      cb.call({ lastID: 5 }, null);
-    });
+    mockRepo.countByUserId.mockResolvedValue(0);
+    mockRepo.create.mockResolvedValue({ id: 'uuid-5', sendTimes: ['2099-12-31T23:59:00.000Z'] });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await scheduleCommand.execute(interaction as any);
 
-    await new Promise(resolve => setTimeout(resolve, 0));
     expect(mockScheduleMessage).toHaveBeenCalledWith(
       expect.anything(), // client
-      5,
+      'uuid-5',
       expect.any(String),
       expect.any(String),
       expect.any(String),
@@ -243,13 +205,34 @@ describe('schedule command', () => {
       return null;
     });
 
-    mockDbGet.mockImplementation((_sql: string, _params: unknown[], cb: (err: Error | null, row: { count: number }) => void) => {
-      cb(null, { count: 0 });
+    mockRepo.countByUserId.mockResolvedValue(0);
+    mockRepo.create.mockImplementation((data: { content: string }) => {
+      expect(data.content).toBe('');
+      return Promise.resolve({ id: 'uuid-6', sendTimes: ['2099-12-31T23:59:00.000Z'] });
     });
-    mockDbRun.mockImplementation((_sql: string, params: unknown[], cb: (this: { lastID: number }, err: Error | null) => void) => {
-      expect(params[2]).toBe(''); // content should be empty string
-      cb.call({ lastID: 6 }, null);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await scheduleCommand.execute(interaction as any);
+  });
+
+  it('should pass correct channelId to repository create', async () => {
+    mockRepo.countByUserId.mockResolvedValue(0);
+    mockRepo.create.mockImplementation((data: { channelId: string }) => {
+      expect(data.channelId).toBe('channel-456');
+      return Promise.resolve({ id: 'uuid-7', sendTimes: ['2099-12-31T23:59:00.000Z'] });
     });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await scheduleCommand.execute(interaction as any);
+  });
+
+  it('should pass correct userId to countByUserId', async () => {
+    interaction.user = { id: 'specific-user-abc' };
+    mockRepo.countByUserId.mockImplementation((userId: string) => {
+      expect(userId).toBe('specific-user-abc');
+      return Promise.resolve(0);
+    });
+    mockRepo.create.mockResolvedValue({ id: 'uuid-8', sendTimes: ['2099-12-31T23:59:00.000Z'] });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await scheduleCommand.execute(interaction as any);
