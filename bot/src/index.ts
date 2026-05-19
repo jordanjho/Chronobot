@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
-import db from './db/database.js';
+import { prisma } from './db/prisma.js';
 import restoreScheduledMessages from './scheduler/restore.js';
 import logger from './utils/logger.js';
 import type { CommandModule } from './types.js';
@@ -63,26 +63,17 @@ async function loadEvents(): Promise<void> {
 }
 
 client.once('ready', () => {
-  db.run(
-    `CREATE TABLE IF NOT EXISTS messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    channel_id TEXT,
-    send_times TEXT,
-    content TEXT,
-    frequency TEXT,
-    attachment_url TEXT,
-    user_id TEXT
-  )`,
-    (err: Error | null) => {
-      if (err) {
-        logger.error({ err }, 'Failed to create messages table');
-        return;
-      }
-      restoreScheduledMessages(client);
-    },
-  );
+  void restoreScheduledMessages(client);
+});
 
-  db.run(`CREATE INDEX IF NOT EXISTS idx_user_id ON messages(user_id)`);
+process.on('SIGTERM', async () => {
+  await prisma.$disconnect();
+  process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+  await prisma.$disconnect();
+  process.exit(0);
 });
 
 (async () => {

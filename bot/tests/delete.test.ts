@@ -16,14 +16,20 @@ vi.mock('../src/scheduler/cancel.js', () => ({
   default: vi.fn(),
 }));
 
-// Mock database — we control behavior per test
-const mockDbRun = vi.fn();
-vi.mock('../src/db/database.js', () => ({
-  default: {
-    run: mockDbRun,
-    get: vi.fn(),
-    all: vi.fn(),
-  },
+// Mock JobRepository
+const mockRepo = {
+  countByUserId: vi.fn(),
+  create: vi.fn(),
+  findById: vi.fn(),
+  findAllByUserId: vi.fn(),
+  findAll: vi.fn(),
+  updateSendTimes: vi.fn(),
+  updateContent: vi.fn(),
+  delete: vi.fn(),
+  markCompleted: vi.fn(),
+};
+vi.mock('../src/repositories/JobRepository.js', () => ({
+  jobRepository: mockRepo,
 }));
 
 const { default: deleteCommand } = await import('../src/commands/delete.js');
@@ -35,7 +41,7 @@ describe('delete command', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     interaction = createMockInteraction({ commandName: 'delete' });
-    interaction.options.getInteger.mockReturnValue(42);
+    interaction.options.getString.mockReturnValue('uuid-42');
   });
 
   it('should have the correct command name', () => {
@@ -47,76 +53,49 @@ describe('delete command', () => {
   });
 
   it('should reply with error if message not found', async () => {
-    mockDbRun.mockImplementation((_sql: string, _params: unknown[], cb: (this: { changes: number }, err: Error | null) => void) => {
-      cb.call({ changes: 0 }, null);
-    });
+    mockRepo.delete.mockResolvedValue(false);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await deleteCommand.execute(interaction as any);
 
-    // Wait for any microtasks (void promises)
-    await new Promise(resolve => setTimeout(resolve, 0));
     expect(interaction.editReply).toHaveBeenCalledWith(
       'Message not found or you do not have permission to delete this message.',
     );
   });
 
   it('should cancel the scheduled job on successful delete', async () => {
-    mockDbRun.mockImplementation((_sql: string, _params: unknown[], cb: (this: { changes: number }, err: Error | null) => void) => {
-      cb.call({ changes: 1 }, null);
-    });
+    mockRepo.delete.mockResolvedValue(true);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await deleteCommand.execute(interaction as any);
 
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(cancelScheduledMessage).toHaveBeenCalledWith(42);
+    expect(cancelScheduledMessage).toHaveBeenCalledWith('uuid-42');
   });
 
   it('should reply with success message after deleting', async () => {
-    mockDbRun.mockImplementation((_sql: string, _params: unknown[], cb: (this: { changes: number }, err: Error | null) => void) => {
-      cb.call({ changes: 1 }, null);
-    });
+    mockRepo.delete.mockResolvedValue(true);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await deleteCommand.execute(interaction as any);
 
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(interaction.editReply).toHaveBeenCalledWith('Deleted message 42');
-  });
-
-  it('should reply with error if db returns an error', async () => {
-    mockDbRun.mockImplementation((_sql: string, _params: unknown[], cb: (this: { changes: number }, err: Error | null) => void) => {
-      cb.call({ changes: 0 }, new Error('DB error'));
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await deleteCommand.execute(interaction as any);
-
-    await new Promise(resolve => setTimeout(resolve, 0));
-    expect(interaction.editReply).toHaveBeenCalledWith(
-      'Message not found or you do not have permission to delete this message.',
-    );
+    expect(interaction.editReply).toHaveBeenCalledWith('Deleted message uuid-42');
   });
 
   it('should not cancel job if delete failed', async () => {
-    mockDbRun.mockImplementation((_sql: string, _params: unknown[], cb: (this: { changes: number }, err: Error | null) => void) => {
-      cb.call({ changes: 0 }, null);
-    });
+    mockRepo.delete.mockResolvedValue(false);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await deleteCommand.execute(interaction as any);
 
-    await new Promise(resolve => setTimeout(resolve, 0));
     expect(cancelScheduledMessage).not.toHaveBeenCalled();
   });
 
   it('should use the user id from interaction', async () => {
     interaction.user = { id: 'specific-user-789' };
 
-    mockDbRun.mockImplementation((_sql: string, params: unknown[], cb: (this: { changes: number }, err: Error | null) => void) => {
-      expect(params[1]).toBe('specific-user-789');
-      cb.call({ changes: 1 }, null);
+    mockRepo.delete.mockImplementation((id: string, userId: string) => {
+      expect(userId).toBe('specific-user-789');
+      return Promise.resolve(true);
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -124,11 +103,25 @@ describe('delete command', () => {
   });
 
   it('should use the message id from options', async () => {
-    interaction.options.getInteger.mockReturnValue(99);
+    interaction.options.getString.mockReturnValue('uuid-99');
 
-    mockDbRun.mockImplementation((_sql: string, params: unknown[], cb: (this: { changes: number }, err: Error | null) => void) => {
-      expect(params[0]).toBe(99);
-      cb.call({ changes: 1 }, null);
+    mockRepo.delete.mockImplementation((id: string) => {
+      expect(id).toBe('uuid-99');
+      return Promise.resolve(true);
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await deleteCommand.execute(interaction as any);
+  });
+
+  it('should pass both id and userId to repository delete', async () => {
+    interaction.user = { id: 'user-abc' };
+    interaction.options.getString.mockReturnValue('uuid-delete-test');
+
+    mockRepo.delete.mockImplementation((id: string, userId: string) => {
+      expect(id).toBe('uuid-delete-test');
+      expect(userId).toBe('user-abc');
+      return Promise.resolve(true);
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
