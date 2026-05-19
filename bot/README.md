@@ -1,32 +1,34 @@
 # Chronobot
 
-Chronobot is a Discord scheduling bot that allows users to automate sending messages, images, videos, and GIFs to Discord channels at specified times and frequencies. It supports per-user scheduling limits, multi-line message formatting, and timezone-aware scheduling and display.
+Chronobot is a Discord scheduling bot that allows users to automate sending messages, images, videos, and GIFs to Discord channels at specified times and frequencies. It supports per-user scheduling limits and persistent scheduling across restarts.
 
 ## Features
 
 - **Schedule Messages:** Use slash commands to schedule messages to be sent once, daily, or weekly.
-- **Multi-line Content:** Supports rich, multi-line message formatting via Discord modals.
 - **Attachments:** Schedule messages with images, videos, or GIFs.
-- **Timezone Support:** Users can set their timezone; all scheduling and listing is localized.
 - **Per-user Limits:** Each user can have up to 5 scheduled messages at a time.
 - **Secure Editing/Deleting:** Only the user who scheduled a message can edit or delete it.
 - **Persistent Scheduling:** Scheduled messages are restored automatically after bot restarts.
-- **Efficient Data Retrieval:** Indexed database queries for scalable performance.
+- **Structured Logging:** Uses Pino for structured JSON logging in production, pretty-printed in development.
 
 ## Technologies Used
 
-- Node.js
-- discord.js
+- Node.js 22+
+- TypeScript (strict mode)
+- discord.js v14
 - sqlite3
 - node-schedule
-- dayjs (+ timezone plugins)
+- dayjs (+ UTC plugin)
+- Pino (structured logging)
+- Zod (environment variable validation)
+- Vitest (testing)
 
 ## Setup
 
 1. **Clone the repository:**
    ```bash
    git clone https://github.com/yourusername/chronobot.git
-   cd chronobot
+   cd chronobot/bot
    ```
 
 2. **Install dependencies:**
@@ -34,56 +36,85 @@ Chronobot is a Discord scheduling bot that allows users to automate sending mess
    npm install
    ```
 
-3. **Configure Discord credentials:**
-   - Create a `config.json` file with your bot token, client ID, and (optionally) guild ID:
-     ```json
-     {
-       "token": "YOUR_BOT_TOKEN",
-       "clientId": "YOUR_CLIENT_ID",
-       "guildId": "YOUR_GUILD_ID"
-     }
+3. **Configure environment variables:**
+   - Create a `.env` file in the `bot/` directory:
+     ```env
+     DISCORD_TOKEN=your_bot_token_here
+     CLIENT_ID=your_client_id_here
+     GUILD_ID=your_guild_id_here   # optional, for guild-specific commands
+     LOG_LEVEL=info                # optional, default: info
      ```
 
-4. **Run the bot:**
+4. **Deploy slash commands (first time or after changes):**
    ```bash
-   node index.js
+   npm run deploy-commands
    ```
+
+5. **Run the bot:**
+   ```bash
+   npm start
+   ```
+
+## Development
+
+### Running tests
+```bash
+npm test
+```
+
+### Type checking
+```bash
+npx tsc --noEmit
+```
+
+### Linting
+```bash
+npm run lint
+```
+
+### Building (compiles TypeScript to dist/)
+```bash
+npm run build
+```
+
+## Project Structure
+
+```
+bot/
+  src/
+    commands/     delete.ts, edit.ts, help.ts, list.ts, schedule.ts
+    db/           database.ts
+    events/       interactionCreate.ts, ready.ts
+    scheduler/    cancel.ts, restore.ts, scheduleMessage.ts
+    utils/        logger.ts
+    config.ts     Environment variable validation (Zod)
+    discord.d.ts  Discord.js Client type augmentation
+    index.ts      Entry point
+    types.ts      Shared TypeScript types
+  tests/
+    helpers/      db.ts, interaction.ts
+    cancel.test.ts, delete.test.ts, edit.test.ts, help.test.ts
+    list.test.ts, restore.test.ts, schedule.test.ts
+  tsconfig.json
+  vitest.config.ts
+  eslint.config.js
+  package.json
+```
 
 ## Usage
 
 ### Commands
 
 - `/schedule <frequency> <timestamp> <content> [attachment]`
-  - Schedule a message. Frequency: once, daily, weekly. Timestamp format: `YYYY-MM-DD HH:mm` (your local time).
-  - Content input is multi-line via modal.
-- `/settimezone <timezone>`
-  - Set your timezone (e.g. `America/New_York`). Used for scheduling and displaying times.
+  - Schedule a message. Frequency: once, daily, weekly. Timestamp format: `YYYY-MM-DD HH:mm` (UTC).
 - `/list`
-  - List all your scheduled messages, with times shown in your timezone.
+  - List all your scheduled messages.
 - `/edit <id> [content] [attachment]`
   - Edit your scheduled message. Only your own messages can be edited.
 - `/delete <id>`
   - Delete your scheduled message. Only your own messages can be deleted.
 - `/help`
   - Show all commands.
-
-## Example
-
-1. Set your timezone:
-   ```
-   /settimezone America/Los_Angeles
-   ```
-
-2. Schedule a message:
-   ```
-   /schedule daily 2025-08-01 14:00
-   ```
-   - Enter your message in the modal that appears.
-
-3. List your scheduled messages:
-   ```
-   /list
-   ```
 
 ## Contributing
 
@@ -92,7 +123,3 @@ Pull requests and suggestions are welcome! Please open an issue for bugs or feat
 ## License
 
 MIT License
-
----
-
-**Chronobot** is designed for Discord communities that need reliable, timezone-aware message automation with rich formatting and secure user controls.

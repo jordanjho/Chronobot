@@ -2,9 +2,14 @@
   "name": "discord-bots",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "src/index.ts",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node --import tsx/esm src/index.ts",
+    "build": "tsc",
+    "deploy-commands": "node --import tsx/esm deploy-commands.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src/"
   },
   "keywords": [],
   "author": "",
@@ -14,14 +19,22 @@
     "dayjs": "^1.11.13",
     "discord.js": "^14.21.0",
     "dotenv": "^17.2.1",
-    "fs": "^0.0.1-security",
     "node-schedule": "^2.1.1",
-    "path": "^0.12.7",
+    "pino": "^10.3.1",
+    "pino-pretty": "^13.1.3",
     "sqlite3": "^5.1.7",
-    "url": "^0.11.4"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
-    "eslint": "^9.32.0"
+    "@types/node": "^25.9.0",
+    "@types/node-schedule": "^2.1.8",
+    "@types/sqlite3": "^3.1.11",
+    "@typescript-eslint/eslint-plugin": "^8.59.4",
+    "@typescript-eslint/parser": "^8.59.4",
+    "eslint": "^9.32.0",
+    "tsx": "^4.22.2",
+    "typescript": "^6.0.3",
+    "vitest": "^3.2.4"
   }
 }
