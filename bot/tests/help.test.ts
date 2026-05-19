@@ -11,15 +11,6 @@ vi.mock('../src/utils/logger.js', () => ({
   },
 }));
 
-// Mock the database
-vi.mock('../src/db/database.js', () => ({
-  default: {
-    run: vi.fn(),
-    get: vi.fn(),
-    all: vi.fn(),
-  },
-}));
-
 // Import after mocks
 const { default: helpCommand } = await import('../src/commands/help.js');
 

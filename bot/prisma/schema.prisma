@@ -1,0 +1,31 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Job {
+  id            String    @id @default(uuid()) @db.Uuid
+  channelId     String    @map("channel_id")
+  userId        String    @map("user_id")
+  content       String    @default("")
+  frequency     String
+  sendTimes     String[]  @map("send_times")
+  attachmentUrl String?   @map("attachment_url")
+  status        JobStatus @default(QUEUED)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("jobs")
+}
+
+enum JobStatus {
+  QUEUED
+  COMPLETED
+  FAILED
+  DEAD
+}
