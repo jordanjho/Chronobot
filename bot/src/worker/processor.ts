@@ -33,7 +33,7 @@ export function createWorker(client: Client): Worker<QueuedJobData> {
       if (dbJob) {
         const remaining = dbJob.sendTimes.filter((t) => t !== isoTime);
         if (remaining.length === 0) {
-          await jobRepository.markCompleted(jobId);
+          await jobRepository.hardDelete(jobId);
         }
         else {
           await jobRepository.updateSendTimes(jobId, remaining);

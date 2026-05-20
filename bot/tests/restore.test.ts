@@ -88,7 +88,7 @@ describe('jobService.restoreJobs', () => {
     );
   });
 
-  it('should mark job COMPLETED and not enqueue when all sendTimes are past', async () => {
+  it('should hard-delete job and not enqueue when all sendTimes are past', async () => {
     const pastDate = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     mockRepo.findQueued.mockResolvedValue([
       {
@@ -104,11 +104,11 @@ describe('jobService.restoreJobs', () => {
         updatedAt: new Date(),
       },
     ]);
-    mockRepo.markCompleted.mockResolvedValue({});
+    mockRepo.hardDelete.mockResolvedValue(undefined);
 
     await jobService.restoreJobs(mockClient);
 
-    expect(mockRepo.markCompleted).toHaveBeenCalledWith('uuid-2');
+    expect(mockRepo.hardDelete).toHaveBeenCalledWith('uuid-2');
     expect(mockQueue.add).not.toHaveBeenCalled();
   });
 
