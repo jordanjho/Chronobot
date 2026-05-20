@@ -98,7 +98,7 @@ describe('jobService.cancelJob', () => {
     const result = await jobService.cancelJob('uuid-1', 'user-1');
 
     expect(result).toBe(true);
-    expect(mockQueue.getJob).toHaveBeenCalledWith(`uuid-1:${isoTime}`);
+    expect(mockQueue.getJob).toHaveBeenCalledWith(`uuid-1_${isoTime.replace(/:/g, '_')}`);
     expect(mockQueueJob.remove).toHaveBeenCalledOnce();
     expect(mockRepo.delete).toHaveBeenCalledWith('uuid-1', 'user-1');
   });
@@ -118,8 +118,8 @@ describe('jobService.cancelJob', () => {
 
     await jobService.cancelJob('uuid-2', 'user-1');
 
-    expect(mockQueue.getJob).toHaveBeenCalledWith(`uuid-2:${time1}`);
-    expect(mockQueue.getJob).toHaveBeenCalledWith(`uuid-2:${time2}`);
+    expect(mockQueue.getJob).toHaveBeenCalledWith(`uuid-2_${time1.replace(/:/g, '_')}`);
+    expect(mockQueue.getJob).toHaveBeenCalledWith(`uuid-2_${time2.replace(/:/g, '_')}`);
     expect(mockQueueJob.remove).toHaveBeenCalledTimes(2);
   });
 
