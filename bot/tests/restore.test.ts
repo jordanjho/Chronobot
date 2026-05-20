@@ -29,6 +29,7 @@ const mockRepo = {
   findAllByUserId: vi.fn(),
   findAll: vi.fn(),
   findQueued: vi.fn(),
+  findTerminal: vi.fn(),
   updateSendTimes: vi.fn(),
   updateContent: vi.fn(),
   delete: vi.fn(),
@@ -59,6 +60,7 @@ describe('jobService.restoreJobs', () => {
     mockQueueJob.remove.mockResolvedValue(undefined);
     mockQueue.add.mockResolvedValue(undefined);
     mockQueue.getJob.mockResolvedValue(null);
+    mockRepo.findTerminal.mockResolvedValue([]);
   });
 
   it('should enqueue each future time for queued jobs', async () => {
@@ -233,5 +235,19 @@ describe('jobService.restoreJobs', () => {
       expect.anything(),
       expect.objectContaining({ jobId: `job-uuid-1_${futureDate.replace(/:/g, '_')}` }),
     );
+  });
+
+  it('should hard-delete terminal (COMPLETED/FAILED) records on startup', async () => {
+    mockRepo.findTerminal.mockResolvedValue([
+      { id: 'old-completed', sendTimes: [], status: 'COMPLETED' },
+      { id: 'old-failed', sendTimes: [], status: 'FAILED' },
+    ]);
+    mockRepo.findQueued.mockResolvedValue([]);
+    mockRepo.hardDelete.mockResolvedValue(undefined);
+
+    await jobService.restoreJobs(mockClient);
+
+    expect(mockRepo.hardDelete).toHaveBeenCalledWith('old-completed');
+    expect(mockRepo.hardDelete).toHaveBeenCalledWith('old-failed');
   });
 });

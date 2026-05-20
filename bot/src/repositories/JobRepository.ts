@@ -78,6 +78,10 @@ export class JobRepository {
     return prisma.job.findMany({ where: { status: 'QUEUED' } });
   }
 
+  async findTerminal(): Promise<Job[]> {
+    return prisma.job.findMany({ where: { status: { in: ['COMPLETED', 'FAILED', 'DEAD'] } } });
+  }
+
   async markCompleted(id: string): Promise<Job> {
     return prisma.job.update({
       where: { id },
