@@ -36,8 +36,12 @@ export class JobRepository {
     return prisma.job.findMany();
   }
 
+  async findQueuedByUserId(userId: string): Promise<Job[]> {
+    return prisma.job.findMany({ where: { userId, status: 'QUEUED' } });
+  }
+
   async countByUserId(userId: string): Promise<number> {
-    return prisma.job.count({ where: { userId } });
+    return prisma.job.count({ where: { userId, status: 'QUEUED' } });
   }
 
   async updateSendTimes(id: string, sendTimes: string[]): Promise<Job> {
@@ -74,6 +78,10 @@ export class JobRepository {
     return prisma.job.findMany({ where: { status: 'QUEUED' } });
   }
 
+  async findTerminal(): Promise<Job[]> {
+    return prisma.job.findMany({ where: { status: { in: ['COMPLETED', 'FAILED', 'DEAD'] } } });
+  }
+
   async markCompleted(id: string): Promise<Job> {
     return prisma.job.update({
       where: { id },
@@ -85,6 +93,13 @@ export class JobRepository {
     return prisma.job.update({
       where: { id },
       data: { status: 'FAILED' as JobStatus },
+    });
+  }
+
+  async markDead(id: string): Promise<Job> {
+    return prisma.job.update({
+      where: { id },
+      data: { status: 'DEAD' as JobStatus },
     });
   }
 }
