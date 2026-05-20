@@ -1,3 +1,8 @@
+# Local development: copy bot/.env.example to bot/.env and fill in values.
+# For docker compose, set DATABASE_URL=postgresql://chronobot:chronobot@postgres:5432/chronobot
+# and REDIS_URL=redis://redis:6379 (uses Docker service names, not localhost).
+# Run: docker compose up --build
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -26,6 +31,22 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  bot:
+    build:
+      context: ./bot
+      dockerfile: Dockerfile
+    env_file:
+      - path: ./bot/.env
+        required: false
+    ports:
+      - "9090:9090"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   postgres_data:
