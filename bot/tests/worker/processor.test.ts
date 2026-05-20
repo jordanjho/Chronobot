@@ -165,6 +165,27 @@ describe('worker processor function', () => {
     expect(mockJobRepo.updateSendTimes).not.toHaveBeenCalled();
   });
 
+  it('should complete without error when findById returns null (job already cleaned up)', async () => {
+    const isoTime = '2099-01-01T00:00:00.000Z';
+    mockExecRepo.create.mockResolvedValue({ id: 'exec-null' });
+    mockAdapterExecute.mockResolvedValue({ success: true, messageId: 'msg-1' });
+    // Job was hard-deleted by a concurrent process before we can update sendTimes
+    mockJobRepo.findById.mockResolvedValue(null);
+    mockExecRepo.complete.mockResolvedValue({});
+
+    const job = {
+      id: `job-null_${isoTime.replace(/:/g, '_')}`,
+      data: { jobId: 'job-null', channelId: 'chan-1', isoTime },
+      attemptsMade: 0,
+    };
+
+    // Should not throw — just completes silently
+    await expect(processorFn(job)).resolves.toBeUndefined();
+    expect(mockExecRepo.complete).toHaveBeenCalledWith('exec-null');
+    expect(mockJobRepo.updateSendTimes).not.toHaveBeenCalled();
+    expect(mockJobRepo.hardDelete).not.toHaveBeenCalled();
+  });
+
   it('should update remaining sendTimes when more times left', async () => {
     const isoTime1 = '2099-01-01T00:00:00.000Z';
     const isoTime2 = '2099-01-08T00:00:00.000Z';
