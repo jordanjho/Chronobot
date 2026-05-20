@@ -11,26 +11,32 @@ vi.mock('../src/utils/logger.js', () => ({
   },
 }));
 
-// Mock scheduleMessage
-const mockScheduleMessage = vi.fn();
-vi.mock('../src/scheduler/scheduleMessage.js', () => ({
-  default: mockScheduleMessage,
-}));
-
-// Mock JobRepository
+// Mock JobRepository (still used for countByUserId in schedule command)
 const mockRepo = {
   countByUserId: vi.fn(),
   create: vi.fn(),
   findById: vi.fn(),
   findAllByUserId: vi.fn(),
   findAll: vi.fn(),
+  findQueued: vi.fn(),
   updateSendTimes: vi.fn(),
   updateContent: vi.fn(),
   delete: vi.fn(),
   markCompleted: vi.fn(),
+  markFailed: vi.fn(),
 };
 vi.mock('../src/repositories/JobRepository.js', () => ({
   jobRepository: mockRepo,
+}));
+
+// Mock JobService
+const mockJobService = {
+  createJob: vi.fn(),
+  cancelJob: vi.fn(),
+  restoreJobs: vi.fn(),
+};
+vi.mock('../src/services/JobService.js', () => ({
+  jobService: mockJobService,
 }));
 
 const { default: scheduleCommand } = await import('../src/commands/schedule.js');
@@ -41,7 +47,6 @@ describe('schedule command', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     interaction = createMockInteraction({ commandName: 'schedule' });
-    // Default: frequency = once, valid future timestamp
     interaction.options.getString.mockImplementation((name: string) => {
       if (name === 'frequency') return 'once';
       if (name === 'timestamp') return '2099-12-31 23:59';
@@ -121,16 +126,16 @@ describe('schedule command', () => {
 
   it('should schedule a once message successfully', async () => {
     mockRepo.countByUserId.mockResolvedValue(0);
-    mockRepo.create.mockResolvedValue({ id: 'uuid-1', sendTimes: ['2099-12-31T23:59:00.000Z'] });
+    mockJobService.createJob.mockResolvedValue({ id: 'uuid-1', sendTimes: ['2099-12-31T23:59:00.000Z'] });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await scheduleCommand.execute(interaction as any);
 
     expect(interaction.editReply).toHaveBeenCalledWith('Message scheduled with ID uuid-1');
-    expect(mockScheduleMessage).toHaveBeenCalledTimes(1);
+    expect(mockJobService.createJob).toHaveBeenCalledTimes(1);
   });
 
-  it('should schedule 7 times for daily frequency', async () => {
+  it('should pass daily sendTimes (7) to createJob', async () => {
     interaction.options.getString.mockImplementation((name: string) => {
       if (name === 'frequency') return 'daily';
       if (name === 'timestamp') return '2099-12-25 10:00';
@@ -139,18 +144,16 @@ describe('schedule command', () => {
     });
 
     mockRepo.countByUserId.mockResolvedValue(0);
-    mockRepo.create.mockImplementation((data: { sendTimes: string[] }) => {
+    mockJobService.createJob.mockImplementation((data: { sendTimes: string[] }) => {
       expect(data.sendTimes).toHaveLength(7);
       return Promise.resolve({ id: 'uuid-2', sendTimes: data.sendTimes });
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await scheduleCommand.execute(interaction as any);
-
-    expect(mockScheduleMessage).toHaveBeenCalledTimes(7);
   });
 
-  it('should schedule 4 times for weekly frequency', async () => {
+  it('should pass weekly sendTimes (4) to createJob', async () => {
     interaction.options.getString.mockImplementation((name: string) => {
       if (name === 'frequency') return 'weekly';
       if (name === 'timestamp') return '2099-12-25 10:00';
@@ -159,42 +162,34 @@ describe('schedule command', () => {
     });
 
     mockRepo.countByUserId.mockResolvedValue(0);
-    mockRepo.create.mockImplementation((data: { sendTimes: string[] }) => {
+    mockJobService.createJob.mockImplementation((data: { sendTimes: string[] }) => {
       expect(data.sendTimes).toHaveLength(4);
       return Promise.resolve({ id: 'uuid-3', sendTimes: data.sendTimes });
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await scheduleCommand.execute(interaction as any);
-
-    expect(mockScheduleMessage).toHaveBeenCalledTimes(4);
   });
 
-  it('should reply with error on db create failure', async () => {
+  it('should propagate createJob errors', async () => {
     mockRepo.countByUserId.mockResolvedValue(0);
-    mockRepo.create.mockRejectedValue(new Error('Insert failed'));
+    mockJobService.createJob.mockRejectedValue(new Error('Queue failed'));
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await expect(scheduleCommand.execute(interaction as any)).rejects.toThrow('Insert failed');
+    await expect(scheduleCommand.execute(interaction as any)).rejects.toThrow('Queue failed');
   });
 
-  it('should pass attachment url to scheduleMessage', async () => {
+  it('should pass attachment url to createJob', async () => {
     interaction.options.getAttachment.mockReturnValue({ url: 'https://cdn.example.com/img.png' });
 
     mockRepo.countByUserId.mockResolvedValue(0);
-    mockRepo.create.mockResolvedValue({ id: 'uuid-5', sendTimes: ['2099-12-31T23:59:00.000Z'] });
+    mockJobService.createJob.mockImplementation((data: { attachmentUrl: string | null }) => {
+      expect(data.attachmentUrl).toBe('https://cdn.example.com/img.png');
+      return Promise.resolve({ id: 'uuid-5', sendTimes: ['2099-12-31T23:59:00.000Z'] });
+    });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await scheduleCommand.execute(interaction as any);
-
-    expect(mockScheduleMessage).toHaveBeenCalledWith(
-      expect.anything(), // client
-      'uuid-5',
-      expect.any(String),
-      expect.any(String),
-      expect.any(String),
-      'https://cdn.example.com/img.png',
-    );
   });
 
   it('should use empty string for content when not provided', async () => {
@@ -206,7 +201,7 @@ describe('schedule command', () => {
     });
 
     mockRepo.countByUserId.mockResolvedValue(0);
-    mockRepo.create.mockImplementation((data: { content: string }) => {
+    mockJobService.createJob.mockImplementation((data: { content: string }) => {
       expect(data.content).toBe('');
       return Promise.resolve({ id: 'uuid-6', sendTimes: ['2099-12-31T23:59:00.000Z'] });
     });
@@ -215,9 +210,9 @@ describe('schedule command', () => {
     await scheduleCommand.execute(interaction as any);
   });
 
-  it('should pass correct channelId to repository create', async () => {
+  it('should pass correct channelId to createJob', async () => {
     mockRepo.countByUserId.mockResolvedValue(0);
-    mockRepo.create.mockImplementation((data: { channelId: string }) => {
+    mockJobService.createJob.mockImplementation((data: { channelId: string }) => {
       expect(data.channelId).toBe('channel-456');
       return Promise.resolve({ id: 'uuid-7', sendTimes: ['2099-12-31T23:59:00.000Z'] });
     });
@@ -232,7 +227,7 @@ describe('schedule command', () => {
       expect(userId).toBe('specific-user-abc');
       return Promise.resolve(0);
     });
-    mockRepo.create.mockResolvedValue({ id: 'uuid-8', sendTimes: ['2099-12-31T23:59:00.000Z'] });
+    mockJobService.createJob.mockResolvedValue({ id: 'uuid-8', sendTimes: ['2099-12-31T23:59:00.000Z'] });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await scheduleCommand.execute(interaction as any);

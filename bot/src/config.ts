@@ -9,6 +9,7 @@ const envSchema = z.object({
   GUILD_ID: z.string().optional(),
   LOG_LEVEL: z.string().optional().default('info'),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
+  REDIS_URL: z.string().min(1, 'REDIS_URL is required'),
 });
 
 const result = envSchema.safeParse({
@@ -17,6 +18,7 @@ const result = envSchema.safeParse({
   GUILD_ID: process.env['GUILD_ID'] ?? process.env['guildId'],
   LOG_LEVEL: process.env['LOG_LEVEL'],
   DATABASE_URL: process.env['DATABASE_URL'],
+  REDIS_URL: process.env['REDIS_URL'],
 });
 
 if (!result.success) {
