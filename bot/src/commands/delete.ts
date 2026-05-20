@@ -1,7 +1,6 @@
 import { SlashCommandBuilder } from 'discord.js';
 import type { ChatInputCommandInteraction } from 'discord.js';
-import cancelScheduledMessage from '../scheduler/cancel.js';
-import { jobRepository } from '../repositories/JobRepository.js';
+import { jobService } from '../services/JobService.js';
 import logger from '../utils/logger.js';
 
 export default {
@@ -17,7 +16,7 @@ export default {
     const id = options.getString('id') ?? '';
     const userId = interaction.user.id;
 
-    const deleted = await jobRepository.delete(id, userId);
+    const deleted = await jobService.cancelJob(id, userId);
     if (!deleted) {
       await interaction.editReply(
         'Message not found or you do not have permission to delete this message.',
@@ -25,7 +24,6 @@ export default {
       return;
     }
 
-    cancelScheduledMessage(id);
     logger.info({ command: 'delete', userId, messageId: id }, `Deleted message ${id}`);
     await interaction.editReply(`Deleted message ${id}`);
   },

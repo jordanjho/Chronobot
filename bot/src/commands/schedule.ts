@@ -2,11 +2,10 @@ import { SlashCommandBuilder } from 'discord.js';
 import type { ChatInputCommandInteraction, Client } from 'discord.js';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
-import scheduleMessage from '../scheduler/scheduleMessage.js';
 import { jobRepository } from '../repositories/JobRepository.js';
+import { jobService } from '../services/JobService.js';
 import logger from '../utils/logger.js';
 
-// Bug 3 fix: extend dayjs plugins locally in every file that uses them
 dayjs.extend(utc);
 
 const frequencies = ['once', 'daily', 'weekly'] as const;
@@ -83,24 +82,16 @@ export default {
         times.push(baseTime.add(i, 'week').toISOString());
     }
 
-    const job = await jobRepository.create({
-      channelId,
-      userId,
-      content,
-      frequency,
-      sendTimes: times,
-      attachmentUrl: attachment?.url ?? null,
-    });
-
-    times.forEach((time) =>
-      scheduleMessage(
-        client,
-        job.id,
+    const job = await jobService.createJob(
+      {
         channelId,
-        time,
+        userId,
         content,
-        attachment?.url,
-      ),
+        frequency,
+        sendTimes: times,
+        attachmentUrl: attachment?.url ?? null,
+      },
+      client,
     );
 
     logger.info({ command: 'schedule', userId, channelId, messageId: job.id }, `Message scheduled with ID ${job.id}`);

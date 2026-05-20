@@ -4,7 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
 import { prisma } from './db/prisma.js';
-import restoreScheduledMessages from './scheduler/restore.js';
+import { jobService } from './services/JobService.js';
+import { createWorker } from './worker/processor.js';
 import logger from './utils/logger.js';
 import type { CommandModule } from './types.js';
 import './discord.js';
@@ -63,21 +64,24 @@ async function loadEvents(): Promise<void> {
 }
 
 client.once('ready', () => {
-  void restoreScheduledMessages(client);
+  void jobService.restoreJobs(client);
 });
 
-process.on('SIGTERM', async () => {
-  await prisma.$disconnect();
-  process.exit(0);
-});
+let worker: ReturnType<typeof createWorker> | null = null;
 
-process.on('SIGINT', async () => {
+async function shutdown(): Promise<void> {
+  if (worker) await worker.close();
   await prisma.$disconnect();
   process.exit(0);
-});
+}
+
+process.on('SIGTERM', () => void shutdown());
+process.on('SIGINT', () => void shutdown());
 
 (async () => {
   await loadCommands();
   await loadEvents();
   await client.login(config.DISCORD_TOKEN);
+  worker = createWorker(client);
+  logger.info('Worker started');
 })();

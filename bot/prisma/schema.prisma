@@ -8,19 +8,33 @@ generator client {
 }
 
 model Job {
-  id            String    @id @default(uuid()) @db.Uuid
-  channelId     String    @map("channel_id")
-  userId        String    @map("user_id")
-  content       String    @default("")
+  id            String      @id @default(uuid()) @db.Uuid
+  channelId     String      @map("channel_id")
+  userId        String      @map("user_id")
+  content       String      @default("")
   frequency     String
-  sendTimes     String[]  @map("send_times")
-  attachmentUrl String?   @map("attachment_url")
-  status        JobStatus @default(QUEUED)
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  sendTimes     String[]    @map("send_times")
+  attachmentUrl String?     @map("attachment_url")
+  status        JobStatus   @default(QUEUED)
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+  executions    Execution[]
 
   @@index([userId])
   @@map("jobs")
+}
+
+model Execution {
+  id          String          @id @default(uuid()) @db.Uuid
+  jobId       String          @map("job_id") @db.Uuid
+  attempt     Int
+  status      ExecutionStatus
+  startedAt   DateTime        @map("started_at")
+  completedAt DateTime?       @map("completed_at")
+  error       String?
+  job         Job             @relation(fields: [jobId], references: [id])
+
+  @@map("executions")
 }
 
 enum JobStatus {
@@ -28,4 +42,10 @@ enum JobStatus {
   COMPLETED
   FAILED
   DEAD
+}
+
+enum ExecutionStatus {
+  STARTED
+  COMPLETED
+  FAILED
 }

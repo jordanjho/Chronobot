@@ -11,29 +11,17 @@ vi.mock('../src/utils/logger.js', () => ({
   },
 }));
 
-// Mock cancel scheduler
-vi.mock('../src/scheduler/cancel.js', () => ({
-  default: vi.fn(),
-}));
-
-// Mock JobRepository
-const mockRepo = {
-  countByUserId: vi.fn(),
-  create: vi.fn(),
-  findById: vi.fn(),
-  findAllByUserId: vi.fn(),
-  findAll: vi.fn(),
-  updateSendTimes: vi.fn(),
-  updateContent: vi.fn(),
-  delete: vi.fn(),
-  markCompleted: vi.fn(),
+// Mock JobService
+const mockJobService = {
+  createJob: vi.fn(),
+  cancelJob: vi.fn(),
+  restoreJobs: vi.fn(),
 };
-vi.mock('../src/repositories/JobRepository.js', () => ({
-  jobRepository: mockRepo,
+vi.mock('../src/services/JobService.js', () => ({
+  jobService: mockJobService,
 }));
 
 const { default: deleteCommand } = await import('../src/commands/delete.js');
-const { default: cancelScheduledMessage } = await import('../src/scheduler/cancel.js');
 
 describe('delete command', () => {
   let interaction: ReturnType<typeof createMockInteraction>;
@@ -53,7 +41,7 @@ describe('delete command', () => {
   });
 
   it('should reply with error if message not found', async () => {
-    mockRepo.delete.mockResolvedValue(false);
+    mockJobService.cancelJob.mockResolvedValue(false);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await deleteCommand.execute(interaction as any);
@@ -63,17 +51,8 @@ describe('delete command', () => {
     );
   });
 
-  it('should cancel the scheduled job on successful delete', async () => {
-    mockRepo.delete.mockResolvedValue(true);
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await deleteCommand.execute(interaction as any);
-
-    expect(cancelScheduledMessage).toHaveBeenCalledWith('uuid-42');
-  });
-
   it('should reply with success message after deleting', async () => {
-    mockRepo.delete.mockResolvedValue(true);
+    mockJobService.cancelJob.mockResolvedValue(true);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await deleteCommand.execute(interaction as any);
@@ -81,19 +60,18 @@ describe('delete command', () => {
     expect(interaction.editReply).toHaveBeenCalledWith('Deleted message uuid-42');
   });
 
-  it('should not cancel job if delete failed', async () => {
-    mockRepo.delete.mockResolvedValue(false);
+  it('should not reply with success if delete failed', async () => {
+    mockJobService.cancelJob.mockResolvedValue(false);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await deleteCommand.execute(interaction as any);
 
-    expect(cancelScheduledMessage).not.toHaveBeenCalled();
+    expect(interaction.editReply).not.toHaveBeenCalledWith('Deleted message uuid-42');
   });
 
-  it('should use the user id from interaction', async () => {
+  it('should pass user id to cancelJob', async () => {
     interaction.user = { id: 'specific-user-789' };
-
-    mockRepo.delete.mockImplementation((id: string, userId: string) => {
+    mockJobService.cancelJob.mockImplementation((id: string, userId: string) => {
       expect(userId).toBe('specific-user-789');
       return Promise.resolve(true);
     });
@@ -102,10 +80,9 @@ describe('delete command', () => {
     await deleteCommand.execute(interaction as any);
   });
 
-  it('should use the message id from options', async () => {
+  it('should pass message id to cancelJob', async () => {
     interaction.options.getString.mockReturnValue('uuid-99');
-
-    mockRepo.delete.mockImplementation((id: string) => {
+    mockJobService.cancelJob.mockImplementation((id: string) => {
       expect(id).toBe('uuid-99');
       return Promise.resolve(true);
     });
@@ -114,11 +91,10 @@ describe('delete command', () => {
     await deleteCommand.execute(interaction as any);
   });
 
-  it('should pass both id and userId to repository delete', async () => {
+  it('should pass both id and userId to cancelJob', async () => {
     interaction.user = { id: 'user-abc' };
     interaction.options.getString.mockReturnValue('uuid-delete-test');
-
-    mockRepo.delete.mockImplementation((id: string, userId: string) => {
+    mockJobService.cancelJob.mockImplementation((id: string, userId: string) => {
       expect(id).toBe('uuid-delete-test');
       expect(userId).toBe('user-abc');
       return Promise.resolve(true);
