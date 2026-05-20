@@ -32,7 +32,7 @@ model Execution {
   startedAt   DateTime        @map("started_at")
   completedAt DateTime?       @map("completed_at")
   error       String?
-  job         Job             @relation(fields: [jobId], references: [id])
+  job         Job             @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
   @@map("executions")
 }
