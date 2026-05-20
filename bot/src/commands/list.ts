@@ -9,7 +9,7 @@ export default {
     .setDescription('List all scheduled messages'),
   async execute(interaction: ChatInputCommandInteraction): Promise<void> {
     const userId = interaction.user.id;
-    const rows = await jobRepository.findAllByUserId(userId);
+    const rows = await jobRepository.findQueuedByUserId(userId);
 
     if (rows.length === 0) {
       await interaction.editReply('No messages scheduled.');
