@@ -10,10 +10,15 @@ vi.mock('../src/utils/logger.js', () => ({
   },
 }));
 
-// Mock scheduleMessage
-const mockScheduleMessage = vi.fn();
-vi.mock('../src/scheduler/scheduleMessage.js', () => ({
-  default: mockScheduleMessage,
+// Mock config (must be before queue import)
+vi.mock('../src/config.js', () => ({
+  config: {
+    DISCORD_TOKEN: 'test-token',
+    CLIENT_ID: 'test-client',
+    DATABASE_URL: 'postgresql://test',
+    REDIS_URL: 'redis://localhost:6379',
+    LOG_LEVEL: 'info',
+  },
 }));
 
 // Mock JobRepository
@@ -23,26 +28,42 @@ const mockRepo = {
   findById: vi.fn(),
   findAllByUserId: vi.fn(),
   findAll: vi.fn(),
+  findQueued: vi.fn(),
   updateSendTimes: vi.fn(),
   updateContent: vi.fn(),
   delete: vi.fn(),
+  hardDelete: vi.fn(),
   markCompleted: vi.fn(),
+  markFailed: vi.fn(),
 };
 vi.mock('../src/repositories/JobRepository.js', () => ({
   jobRepository: mockRepo,
 }));
 
-const { default: restoreScheduledMessages } = await import('../src/scheduler/restore.js');
-const mockClient = {} as Parameters<typeof restoreScheduledMessages>[0];
+// Mock BullMQ jobQueue
+const mockQueueJob = { remove: vi.fn() };
+const mockQueue = {
+  add: vi.fn(),
+  getJob: vi.fn(),
+};
+vi.mock('../src/queue/queues.js', () => ({
+  jobQueue: mockQueue,
+}));
 
-describe('restoreScheduledMessages', () => {
+const { jobService } = await import('../src/services/JobService.js');
+const mockClient = {} as Parameters<typeof jobService.restoreJobs>[0];
+
+describe('jobService.restoreJobs', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockQueueJob.remove.mockResolvedValue(undefined);
+    mockQueue.add.mockResolvedValue(undefined);
+    mockQueue.getJob.mockResolvedValue(null);
   });
 
-  it('should call scheduleMessage for each future time', async () => {
+  it('should enqueue each future time for queued jobs', async () => {
     const futureDate = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-    const jobs = [
+    mockRepo.findQueued.mockResolvedValue([
       {
         id: 'uuid-1',
         channelId: 'chan-1',
@@ -55,26 +76,21 @@ describe('restoreScheduledMessages', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
       },
-    ];
+    ]);
 
-    mockRepo.findAll.mockResolvedValue(jobs);
+    await jobService.restoreJobs(mockClient);
 
-    await restoreScheduledMessages(mockClient);
-
-    expect(mockScheduleMessage).toHaveBeenCalledTimes(1);
-    expect(mockScheduleMessage).toHaveBeenCalledWith(
-      mockClient,
-      'uuid-1',
-      'chan-1',
-      futureDate,
-      'Hello',
-      null,
+    expect(mockQueue.add).toHaveBeenCalledTimes(1);
+    expect(mockQueue.add).toHaveBeenCalledWith(
+      'send',
+      expect.objectContaining({ jobId: 'uuid-1', channelId: 'chan-1', isoTime: futureDate }),
+      expect.objectContaining({ jobId: `uuid-1_${futureDate.replace(/:/g, '_')}` }),
     );
   });
 
-  it('should skip times in the past (Bug 1 fix)', async () => {
+  it('should mark job COMPLETED and not enqueue when all sendTimes are past', async () => {
     const pastDate = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-    const jobs = [
+    mockRepo.findQueued.mockResolvedValue([
       {
         id: 'uuid-2',
         channelId: 'chan-2',
@@ -87,19 +103,19 @@ describe('restoreScheduledMessages', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
       },
-    ];
+    ]);
+    mockRepo.markCompleted.mockResolvedValue({});
 
-    mockRepo.findAll.mockResolvedValue(jobs);
+    await jobService.restoreJobs(mockClient);
 
-    await restoreScheduledMessages(mockClient);
-
-    expect(mockScheduleMessage).not.toHaveBeenCalled();
+    expect(mockRepo.markCompleted).toHaveBeenCalledWith('uuid-2');
+    expect(mockQueue.add).not.toHaveBeenCalled();
   });
 
-  it('should only schedule future times from a mixed array', async () => {
+  it('should prune past times and enqueue only future times from a mixed array', async () => {
     const pastDate = new Date(Date.now() - 1000).toISOString();
     const futureDate = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-    const jobs = [
+    mockRepo.findQueued.mockResolvedValue([
       {
         id: 'uuid-3',
         channelId: 'chan-3',
@@ -112,143 +128,110 @@ describe('restoreScheduledMessages', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
       },
-    ];
+    ]);
+    mockRepo.updateSendTimes.mockResolvedValue({});
 
-    mockRepo.findAll.mockResolvedValue(jobs);
+    await jobService.restoreJobs(mockClient);
 
-    await restoreScheduledMessages(mockClient);
-
-    expect(mockScheduleMessage).toHaveBeenCalledTimes(1);
-    expect(mockScheduleMessage).toHaveBeenCalledWith(
-      mockClient,
-      'uuid-3',
-      'chan-3',
-      futureDate,
-      'Mixed',
-      null,
+    expect(mockRepo.updateSendTimes).toHaveBeenCalledWith('uuid-3', [futureDate]);
+    expect(mockQueue.add).toHaveBeenCalledTimes(1);
+    expect(mockQueue.add).toHaveBeenCalledWith(
+      'send',
+      expect.objectContaining({ isoTime: futureDate }),
+      expect.anything(),
     );
   });
 
-  it('should log error when repository fails', async () => {
-    mockRepo.findAll.mockRejectedValue(new Error('DB failure'));
+  it('should handle empty result set gracefully', async () => {
+    mockRepo.findQueued.mockResolvedValue([]);
 
-    await restoreScheduledMessages(mockClient);
+    await jobService.restoreJobs(mockClient);
 
-    expect(mockScheduleMessage).not.toHaveBeenCalled();
+    expect(mockQueue.add).not.toHaveBeenCalled();
   });
 
-  it('should handle multiple rows correctly', async () => {
-    const future1 = new Date(Date.now() + 3600000).toISOString();
-    const future2 = new Date(Date.now() + 7200000).toISOString();
-    const jobs = [
+  it('should skip times already in the queue', async () => {
+    const futureDate = new Date(Date.now() + 3600000).toISOString();
+    mockRepo.findQueued.mockResolvedValue([
       {
         id: 'uuid-10',
         channelId: 'chan-a',
-        sendTimes: [future1],
-        content: 'Msg A',
+        sendTimes: [futureDate],
+        content: 'Msg',
         frequency: 'once',
-        attachmentUrl: 'https://cdn.example.com/a.png',
+        attachmentUrl: null,
         userId: 'user-a',
         status: 'QUEUED',
         createdAt: new Date(),
         updatedAt: new Date(),
       },
-      {
-        id: 'uuid-11',
-        channelId: 'chan-b',
-        sendTimes: [future2],
-        content: 'Msg B',
-        frequency: 'once',
-        attachmentUrl: null,
-        userId: 'user-b',
-        status: 'QUEUED',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-    ];
+    ]);
+    // Simulate the job already exists in BullMQ
+    mockQueue.getJob.mockResolvedValue({ id: `uuid-10_${futureDate.replace(/:/g, '_')}` });
 
-    mockRepo.findAll.mockResolvedValue(jobs);
+    await jobService.restoreJobs(mockClient);
 
-    await restoreScheduledMessages(mockClient);
-
-    expect(mockScheduleMessage).toHaveBeenCalledTimes(2);
-    expect(mockScheduleMessage).toHaveBeenCalledWith(mockClient, 'uuid-10', 'chan-a', future1, 'Msg A', 'https://cdn.example.com/a.png');
-    expect(mockScheduleMessage).toHaveBeenCalledWith(mockClient, 'uuid-11', 'chan-b', future2, 'Msg B', null);
+    expect(mockQueue.add).not.toHaveBeenCalled();
   });
 
-  it('should handle empty result set gracefully', async () => {
-    mockRepo.findAll.mockResolvedValue([]);
-
-    await restoreScheduledMessages(mockClient);
-
-    expect(mockScheduleMessage).not.toHaveBeenCalled();
-  });
-
-  it('should pass attachmentUrl to scheduleMessage', async () => {
-    const futureDate = new Date(Date.now() + 3600000).toISOString();
-    const jobs = [
+  it('should enqueue multiple jobs', async () => {
+    const future1 = new Date(Date.now() + 3600000).toISOString();
+    const future2 = new Date(Date.now() + 7200000).toISOString();
+    mockRepo.findQueued.mockResolvedValue([
       {
         id: 'uuid-20',
         channelId: 'chan-x',
-        sendTimes: [futureDate],
-        content: 'With attachment',
+        sendTimes: [future1],
+        content: 'Msg A',
         frequency: 'once',
-        attachmentUrl: 'https://cdn.example.com/img.jpg',
+        attachmentUrl: null,
         userId: 'user-x',
         status: 'QUEUED',
         createdAt: new Date(),
         updatedAt: new Date(),
       },
-    ];
-
-    mockRepo.findAll.mockResolvedValue(jobs);
-
-    await restoreScheduledMessages(mockClient);
-
-    expect(mockScheduleMessage).toHaveBeenCalledWith(
-      mockClient,
-      'uuid-20',
-      'chan-x',
-      futureDate,
-      'With attachment',
-      'https://cdn.example.com/img.jpg',
-    );
-  });
-
-  it('should only schedule QUEUED jobs', async () => {
-    const futureDate = new Date(Date.now() + 3600000).toISOString();
-    const jobs = [
       {
-        id: 'uuid-30',
-        channelId: 'chan-q',
-        sendTimes: [futureDate],
-        content: 'Queued',
+        id: 'uuid-21',
+        channelId: 'chan-y',
+        sendTimes: [future2],
+        content: 'Msg B',
         frequency: 'once',
         attachmentUrl: null,
-        userId: 'user-q',
+        userId: 'user-y',
         status: 'QUEUED',
         createdAt: new Date(),
         updatedAt: new Date(),
       },
+    ]);
+
+    await jobService.restoreJobs(mockClient);
+
+    expect(mockQueue.add).toHaveBeenCalledTimes(2);
+  });
+
+  it('should use correct BullMQ job ID format', async () => {
+    const futureDate = new Date(Date.now() + 3600000).toISOString();
+    mockRepo.findQueued.mockResolvedValue([
       {
-        id: 'uuid-31',
-        channelId: 'chan-c',
+        id: 'job-uuid-1',
+        channelId: 'chan-1',
         sendTimes: [futureDate],
-        content: 'Completed',
+        content: 'Test',
         frequency: 'once',
         attachmentUrl: null,
-        userId: 'user-c',
-        status: 'COMPLETED',
+        userId: 'user-1',
+        status: 'QUEUED',
         createdAt: new Date(),
         updatedAt: new Date(),
       },
-    ];
+    ]);
 
-    mockRepo.findAll.mockResolvedValue(jobs);
+    await jobService.restoreJobs(mockClient);
 
-    await restoreScheduledMessages(mockClient);
-
-    expect(mockScheduleMessage).toHaveBeenCalledTimes(1);
-    expect(mockScheduleMessage).toHaveBeenCalledWith(mockClient, 'uuid-30', 'chan-q', futureDate, 'Queued', null);
+    expect(mockQueue.add).toHaveBeenCalledWith(
+      'send',
+      expect.anything(),
+      expect.objectContaining({ jobId: `job-uuid-1_${futureDate.replace(/:/g, '_')}` }),
+    );
   });
 });
