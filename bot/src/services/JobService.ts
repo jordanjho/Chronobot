@@ -18,21 +18,27 @@ export class JobService {
   async createJob(input: CreateJobInput, _client: Client): Promise<Job> {
     const job = await jobRepository.create(input);
 
-    const now = dayjs.utc();
-    for (const isoTime of job.sendTimes) {
-      if (dayjs.utc(isoTime).isBefore(now)) continue;
+    try {
+      const now = dayjs.utc();
+      for (const isoTime of job.sendTimes) {
+        if (dayjs.utc(isoTime).isBefore(now)) continue;
 
-      const delay = dayjs.utc(isoTime).diff(now);
-      await jobQueue.add(
-        'send',
-        { jobId: job.id, channelId: job.channelId, isoTime },
-        {
-          jobId: bullmqJobId(job.id, isoTime),
-          delay,
-          attempts: 3,
-          backoff: { type: 'exponential', delay: 5000 },
-        },
-      );
+        const delay = dayjs.utc(isoTime).diff(now);
+        await jobQueue.add(
+          'send',
+          { jobId: job.id, channelId: job.channelId, isoTime },
+          {
+            jobId: bullmqJobId(job.id, isoTime),
+            delay,
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 5000 },
+          },
+        );
+      }
+    } catch (err) {
+      // Roll back the DB record so the user doesn't see a ghost job
+      await jobRepository.hardDelete(job.id);
+      throw err;
     }
 
     logger.info({ jobId: job.id, times: job.sendTimes.length }, 'Job created and enqueued');
@@ -57,11 +63,24 @@ export class JobService {
     const jobs = await jobRepository.findQueued();
     const now = dayjs.utc();
     let enqueued = 0;
+    let pruned = 0;
 
     for (const job of jobs) {
-      for (const isoTime of job.sendTimes) {
-        if (dayjs.utc(isoTime).isBefore(now)) continue;
+      const futureTimes = job.sendTimes.filter(t => dayjs.utc(t).isAfter(now));
+      const staleTimes = job.sendTimes.length - futureTimes.length;
 
+      // Prune missed send times that accumulated during downtime
+      if (staleTimes > 0) {
+        if (futureTimes.length === 0) {
+          await jobRepository.markCompleted(job.id);
+          pruned += staleTimes;
+          continue;
+        }
+        await jobRepository.updateSendTimes(job.id, futureTimes);
+        pruned += staleTimes;
+      }
+
+      for (const isoTime of futureTimes) {
         const bullmqId = bullmqJobId(job.id, isoTime);
         const existing = await jobQueue.getJob(bullmqId);
         if (existing) continue;
@@ -81,7 +100,7 @@ export class JobService {
       }
     }
 
-    logger.info({ jobsFound: jobs.length, enqueued }, 'Restored jobs to queue');
+    logger.info({ jobsFound: jobs.length, enqueued, pruned }, 'Restored jobs to queue');
   }
 }
 
