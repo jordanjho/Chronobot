@@ -51,11 +51,13 @@ vi.mock('../../src/queue/queues.js', () => ({
 }));
 
 const { jobService } = await import('../../src/services/JobService.js');
+const { registry, jobsEnqueued } = await import('../../src/metrics/metrics.js');
 const mockClient = {} as Parameters<typeof jobService.createJob>[1];
 
 describe('jobService.createJob', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    registry.resetMetrics();
     mockQueue.add.mockResolvedValue(undefined);
     mockQueue.getJob.mockResolvedValue(null);
     mockQueueJob.remove.mockResolvedValue(undefined);
@@ -201,5 +203,53 @@ describe('jobService.createJob', () => {
         backoff: { type: 'exponential', delay: 5000 },
       }),
     );
+  });
+
+  it('increments jobsEnqueued once per future sendTime', async () => {
+    const futureTime = new Date(Date.now() + 3600000).toISOString();
+    mockRepo.create.mockResolvedValue({
+      id: 'job-metrics-1',
+      channelId: 'chan-1',
+      userId: 'user-1',
+      content: 'Hello',
+      frequency: 'once',
+      sendTimes: [futureTime],
+      attachmentUrl: null,
+      status: 'QUEUED',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await jobService.createJob(
+      { channelId: 'chan-1', userId: 'user-1', content: 'Hello', frequency: 'once', sendTimes: [futureTime] },
+      mockClient,
+    );
+
+    const { values } = await jobsEnqueued.get();
+    expect(values.find(v => v.labels.frequency === 'once')?.value).toBe(1);
+  });
+
+  it('does not increment jobsEnqueued for past sendTimes', async () => {
+    const pastTime = new Date(Date.now() - 3600000).toISOString();
+    mockRepo.create.mockResolvedValue({
+      id: 'job-metrics-2',
+      channelId: 'chan-1',
+      userId: 'user-1',
+      content: 'Hello',
+      frequency: 'once',
+      sendTimes: [pastTime],
+      attachmentUrl: null,
+      status: 'QUEUED',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await jobService.createJob(
+      { channelId: 'chan-1', userId: 'user-1', content: 'Hello', frequency: 'once', sendTimes: [pastTime] },
+      mockClient,
+    );
+
+    const { values } = await jobsEnqueued.get();
+    expect(values.length).toBe(0);
   });
 });

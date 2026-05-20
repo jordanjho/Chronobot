@@ -6,6 +6,7 @@ import { config } from './config.js';
 import { prisma } from './db/prisma.js';
 import { jobService } from './services/JobService.js';
 import { createWorker } from './worker/processor.js';
+import { startMetricsServer } from './metrics/server.js';
 import logger from './utils/logger.js';
 import type { CommandModule } from './types.js';
 
@@ -67,8 +68,13 @@ client.once('ready', () => {
 });
 
 let worker: ReturnType<typeof createWorker> | null = null;
+let metricsServer: ReturnType<typeof startMetricsServer> | null = null;
 
 async function shutdown(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    if (metricsServer) metricsServer.close(() => resolve());
+    else resolve();
+  });
   if (worker) await worker.close();
   await prisma.$disconnect();
   process.exit(0);
@@ -78,6 +84,7 @@ process.on('SIGTERM', () => void shutdown());
 process.on('SIGINT', () => void shutdown());
 
 (async () => {
+  metricsServer = startMetricsServer();
   await loadCommands();
   await loadEvents();
   await client.login(config.DISCORD_TOKEN);
