@@ -32,6 +32,7 @@ const mockRepo = {
   updateSendTimes: vi.fn(),
   updateContent: vi.fn(),
   delete: vi.fn(),
+  hardDelete: vi.fn(),
   markCompleted: vi.fn(),
   markFailed: vi.fn(),
 };
@@ -142,6 +143,34 @@ describe('jobService.createJob', () => {
     );
 
     expect(result).toEqual(createdJob);
+  });
+
+  it('should hard-delete DB record and rethrow if BullMQ enqueue fails', async () => {
+    const futureTime = new Date(Date.now() + 3600000).toISOString();
+    const createdJob = {
+      id: 'job-uuid-rollback',
+      channelId: 'chan-1',
+      userId: 'user-1',
+      content: 'Test',
+      frequency: 'once',
+      sendTimes: [futureTime],
+      attachmentUrl: null,
+      status: 'QUEUED',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    mockRepo.create.mockResolvedValue(createdJob);
+    mockRepo.hardDelete.mockResolvedValue(undefined);
+    mockQueue.add.mockRejectedValue(new Error('Custom Id cannot contain :'));
+
+    await expect(
+      jobService.createJob(
+        { channelId: 'chan-1', userId: 'user-1', content: 'Test', frequency: 'once', sendTimes: [futureTime] },
+        mockClient,
+      ),
+    ).rejects.toThrow('Custom Id cannot contain :');
+
+    expect(mockRepo.hardDelete).toHaveBeenCalledWith('job-uuid-rollback');
   });
 
   it('should use exponential backoff in queue options', async () => {

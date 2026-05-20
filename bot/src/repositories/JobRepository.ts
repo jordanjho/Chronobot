@@ -66,6 +66,10 @@ export class JobRepository {
     return result.count > 0;
   }
 
+  async hardDelete(id: string): Promise<void> {
+    await prisma.job.delete({ where: { id } });
+  }
+
   async findQueued(): Promise<Job[]> {
     return prisma.job.findMany({ where: { status: 'QUEUED' } });
   }

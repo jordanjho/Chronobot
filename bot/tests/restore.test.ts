@@ -32,6 +32,7 @@ const mockRepo = {
   updateSendTimes: vi.fn(),
   updateContent: vi.fn(),
   delete: vi.fn(),
+  hardDelete: vi.fn(),
   markCompleted: vi.fn(),
   markFailed: vi.fn(),
 };
@@ -87,7 +88,7 @@ describe('jobService.restoreJobs', () => {
     );
   });
 
-  it('should skip times already in the past', async () => {
+  it('should mark job COMPLETED and not enqueue when all sendTimes are past', async () => {
     const pastDate = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     mockRepo.findQueued.mockResolvedValue([
       {
@@ -103,13 +104,15 @@ describe('jobService.restoreJobs', () => {
         updatedAt: new Date(),
       },
     ]);
+    mockRepo.markCompleted.mockResolvedValue({});
 
     await jobService.restoreJobs(mockClient);
 
+    expect(mockRepo.markCompleted).toHaveBeenCalledWith('uuid-2');
     expect(mockQueue.add).not.toHaveBeenCalled();
   });
 
-  it('should only enqueue future times from a mixed array', async () => {
+  it('should prune past times and enqueue only future times from a mixed array', async () => {
     const pastDate = new Date(Date.now() - 1000).toISOString();
     const futureDate = new Date(Date.now() + 60 * 60 * 1000).toISOString();
     mockRepo.findQueued.mockResolvedValue([
@@ -126,9 +129,11 @@ describe('jobService.restoreJobs', () => {
         updatedAt: new Date(),
       },
     ]);
+    mockRepo.updateSendTimes.mockResolvedValue({});
 
     await jobService.restoreJobs(mockClient);
 
+    expect(mockRepo.updateSendTimes).toHaveBeenCalledWith('uuid-3', [futureDate]);
     expect(mockQueue.add).toHaveBeenCalledTimes(1);
     expect(mockQueue.add).toHaveBeenCalledWith(
       'send',

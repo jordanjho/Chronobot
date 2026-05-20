@@ -33,6 +33,7 @@ const mockRepo = {
   updateContent: vi.fn(),
   delete: vi.fn(),
   markCompleted: vi.fn(),
+  hardDelete: vi.fn(),
   markFailed: vi.fn(),
 };
 vi.mock('../src/repositories/JobRepository.js', () => ({
