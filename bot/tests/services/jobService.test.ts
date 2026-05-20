@@ -50,7 +50,7 @@ vi.mock('../../src/queue/queues.js', () => ({
   jobQueue: mockQueue,
 }));
 
-const { jobService } = await import('../../src/services/JobService.js');
+const { jobService, bullmqJobId } = await import('../../src/services/JobService.js');
 const { registry, jobsEnqueued } = await import('../../src/metrics/metrics.js');
 const mockClient = {} as Parameters<typeof jobService.createJob>[1];
 
@@ -229,6 +229,31 @@ describe('jobService.createJob', () => {
     expect(values.find(v => v.labels.frequency === 'once')?.value).toBe(1);
   });
 
+  it('enqueues all future sendTimes when job has multiple (daily)', async () => {
+    const t1 = new Date(Date.now() + 1 * 3600000).toISOString();
+    const t2 = new Date(Date.now() + 2 * 3600000).toISOString();
+    const t3 = new Date(Date.now() + 3 * 3600000).toISOString();
+    mockRepo.create.mockResolvedValue({
+      id: 'job-multi',
+      channelId: 'chan-1',
+      userId: 'user-1',
+      content: 'Daily',
+      frequency: 'daily',
+      sendTimes: [t1, t2, t3],
+      attachmentUrl: null,
+      status: 'QUEUED',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await jobService.createJob(
+      { channelId: 'chan-1', userId: 'user-1', content: 'Daily', frequency: 'daily', sendTimes: [t1, t2, t3] },
+      mockClient,
+    );
+
+    expect(mockQueue.add).toHaveBeenCalledTimes(3);
+  });
+
   it('does not increment jobsEnqueued for past sendTimes', async () => {
     const pastTime = new Date(Date.now() - 3600000).toISOString();
     mockRepo.create.mockResolvedValue({
@@ -251,5 +276,23 @@ describe('jobService.createJob', () => {
 
     const { values } = await jobsEnqueued.get();
     expect(values.length).toBe(0);
+  });
+});
+
+describe('bullmqJobId helper', () => {
+  it('formats as <jobId>_<isoTime with colons replaced by underscores>', () => {
+    const result = bullmqJobId('abc-uuid', '2099-01-01T12:30:45.000Z');
+    expect(result).toBe('abc-uuid_2099-01-01T12_30_45.000Z');
+  });
+
+  it('replaces ALL colons in isoTime (HH, mm, ss)', () => {
+    const result = bullmqJobId('job-1', '2099-12-31T23:59:59.000Z');
+    expect(result).not.toContain(':');
+    expect(result).toBe('job-1_2099-12-31T23_59_59.000Z');
+  });
+
+  it('handles isoTime with no colons gracefully (no-op)', () => {
+    const result = bullmqJobId('job-2', '2099-01-01T000000.000Z');
+    expect(result).toBe('job-2_2099-01-01T000000.000Z');
   });
 });

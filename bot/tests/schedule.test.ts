@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, type MockInstance } from 'vitest';
 import { createMockInteraction } from './helpers/interaction.js';
 
 // Mock the logger
@@ -231,5 +231,186 @@ describe('schedule command', () => {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await scheduleCommand.execute(interaction as any);
+  });
+
+  it('should allow scheduling when user has 4 messages (just below 5-slot limit)', async () => {
+    mockRepo.countByUserId.mockResolvedValue(4);
+    mockJobService.createJob.mockResolvedValue({ id: 'uuid-at-4', sendTimes: ['2099-12-31T23:59:00.000Z'] });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await scheduleCommand.execute(interaction as any);
+
+    expect(mockJobService.createJob).toHaveBeenCalledOnce();
+    expect(interaction.editReply).toHaveBeenCalledWith('Message scheduled with ID uuid-at-4');
+  });
+
+  it('should pass userId to createJob correctly', async () => {
+    interaction.user = { id: 'owner-user-99' };
+    mockRepo.countByUserId.mockResolvedValue(0);
+    mockJobService.createJob.mockImplementation((data: { userId: string }) => {
+      expect(data.userId).toBe('owner-user-99');
+      return Promise.resolve({ id: 'uuid-uid', sendTimes: ['2099-12-31T23:59:00.000Z'] });
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await scheduleCommand.execute(interaction as any);
+  });
+
+  it('should pass null attachmentUrl when no attachment provided', async () => {
+    interaction.options.getAttachment.mockReturnValue(null);
+    mockRepo.countByUserId.mockResolvedValue(0);
+    mockJobService.createJob.mockImplementation((data: { attachmentUrl: string | null }) => {
+      expect(data.attachmentUrl).toBeNull();
+      return Promise.resolve({ id: 'uuid-null-att', sendTimes: ['2099-12-31T23:59:00.000Z'] });
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await scheduleCommand.execute(interaction as any);
+  });
+});
+
+describe('schedule — timestamp boundary (10-second guard)', () => {
+  let interaction: ReturnType<typeof createMockInteraction>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    // "now" is at 55 seconds into the minute
+    vi.setSystemTime(new Date('2099-06-01T10:00:55.000Z'));
+    interaction = createMockInteraction({ commandName: 'schedule' });
+    interaction.options.getAttachment.mockReturnValue(null);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it('rejects timestamp that is only 5 seconds in the future (within 10s guard)', async () => {
+    // 10:01:00 is only 5 seconds after 10:00:55
+    interaction.options.getString.mockImplementation((name: string) => {
+      if (name === 'frequency') return 'once';
+      if (name === 'timestamp') return '2099-06-01 10:01';
+      return null;
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await scheduleCommand.execute(interaction as any);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      'Invalid or distant timestamp. Format: YYYY-MM-DD HH:mm UTC.',
+    );
+  });
+
+  it('accepts timestamp that is 65 seconds in the future (beyond 10s guard)', async () => {
+    // 10:02:00 is 65 seconds after 10:00:55
+    interaction.options.getString.mockImplementation((name: string) => {
+      if (name === 'frequency') return 'once';
+      if (name === 'timestamp') return '2099-06-01 10:02';
+      return null;
+    });
+    mockRepo.countByUserId.mockResolvedValue(0);
+    mockJobService.createJob.mockResolvedValue({ id: 'future-id', sendTimes: ['2099-06-01T10:02:00.000Z'] });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await scheduleCommand.execute(interaction as any);
+
+    expect(interaction.editReply).toHaveBeenCalledWith('Message scheduled with ID future-id');
+  });
+});
+
+describe('schedule — sendTime interval correctness', () => {
+  let interaction: ReturnType<typeof createMockInteraction>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    interaction = createMockInteraction({ commandName: 'schedule' });
+    interaction.options.getAttachment.mockReturnValue(null);
+    mockRepo.countByUserId.mockResolvedValue(0);
+  });
+
+  it('daily: all 7 sendTimes are exactly 24 hours apart', async () => {
+    interaction.options.getString.mockImplementation((name: string) => {
+      if (name === 'frequency') return 'daily';
+      if (name === 'timestamp') return '2099-12-25 10:00';
+      return null;
+    });
+
+    let capturedTimes: string[] = [];
+    mockJobService.createJob.mockImplementation((data: { sendTimes: string[] }) => {
+      capturedTimes = data.sendTimes;
+      return Promise.resolve({ id: 'daily-id', sendTimes: data.sendTimes });
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await scheduleCommand.execute(interaction as any);
+
+    expect(capturedTimes).toHaveLength(7);
+    for (let i = 1; i < capturedTimes.length; i++) {
+      const diffMs = new Date(capturedTimes[i]!).getTime() - new Date(capturedTimes[i - 1]!).getTime();
+      expect(diffMs).toBe(24 * 60 * 60 * 1000);
+    }
+  });
+
+  it('daily: first sendTime matches the requested base timestamp', async () => {
+    interaction.options.getString.mockImplementation((name: string) => {
+      if (name === 'frequency') return 'daily';
+      if (name === 'timestamp') return '2099-12-25 10:00';
+      return null;
+    });
+
+    let capturedTimes: string[] = [];
+    mockJobService.createJob.mockImplementation((data: { sendTimes: string[] }) => {
+      capturedTimes = data.sendTimes;
+      return Promise.resolve({ id: 'daily-id', sendTimes: data.sendTimes });
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await scheduleCommand.execute(interaction as any);
+
+    expect(new Date(capturedTimes[0]!).toISOString()).toBe('2099-12-25T10:00:00.000Z');
+  });
+
+  it('weekly: all 4 sendTimes are exactly 7 days apart', async () => {
+    interaction.options.getString.mockImplementation((name: string) => {
+      if (name === 'frequency') return 'weekly';
+      if (name === 'timestamp') return '2099-12-25 10:00';
+      return null;
+    });
+
+    let capturedTimes: string[] = [];
+    mockJobService.createJob.mockImplementation((data: { sendTimes: string[] }) => {
+      capturedTimes = data.sendTimes;
+      return Promise.resolve({ id: 'weekly-id', sendTimes: data.sendTimes });
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await scheduleCommand.execute(interaction as any);
+
+    expect(capturedTimes).toHaveLength(4);
+    for (let i = 1; i < capturedTimes.length; i++) {
+      const diffMs = new Date(capturedTimes[i]!).getTime() - new Date(capturedTimes[i - 1]!).getTime();
+      expect(diffMs).toBe(7 * 24 * 60 * 60 * 1000);
+    }
+  });
+
+  it('once: generates exactly 1 sendTime matching the timestamp', async () => {
+    interaction.options.getString.mockImplementation((name: string) => {
+      if (name === 'frequency') return 'once';
+      if (name === 'timestamp') return '2099-12-25 10:00';
+      return null;
+    });
+
+    let capturedTimes: string[] = [];
+    mockJobService.createJob.mockImplementation((data: { sendTimes: string[] }) => {
+      capturedTimes = data.sendTimes;
+      return Promise.resolve({ id: 'once-id', sendTimes: data.sendTimes });
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await scheduleCommand.execute(interaction as any);
+
+    expect(capturedTimes).toHaveLength(1);
+    expect(new Date(capturedTimes[0]!).toISOString()).toBe('2099-12-25T10:00:00.000Z');
   });
 });

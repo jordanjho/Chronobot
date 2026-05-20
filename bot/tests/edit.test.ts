@@ -166,4 +166,66 @@ describe('edit command', () => {
 
     expect(interaction.editReply).toHaveBeenCalledWith('Updated message uuid-10');
   });
+
+  it('should update content to empty string (explicitly clears message text)', async () => {
+    const existingJob = { id: 'uuid-10', userId: 'user-123', content: 'original text', attachmentUrl: null };
+    mockRepo.findById.mockResolvedValue(existingJob);
+    mockRepo.updateContent.mockImplementation((_id: string, _userId: string, content: string) => {
+      expect(content).toBe('');
+      return Promise.resolve({ ...existingJob, content });
+    });
+
+    interaction.options.getString.mockImplementation((name: string) => {
+      if (name === 'id') return 'uuid-10';
+      if (name === 'content') return '';
+      return null;
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await editCommand.execute(interaction as any);
+
+    expect(interaction.editReply).toHaveBeenCalledWith('Updated message uuid-10');
+  });
+
+  it('should update both content and attachment in the same call', async () => {
+    const existingJob = { id: 'uuid-10', userId: 'user-123', content: 'old text', attachmentUrl: 'https://old.example.com/old.png' };
+    mockRepo.findById.mockResolvedValue(existingJob);
+    let capturedContent = '';
+    let capturedAttachment = '';
+    mockRepo.updateContent.mockImplementation((_id: string, _userId: string, content: string, attachmentUrl: string) => {
+      capturedContent = content;
+      capturedAttachment = attachmentUrl;
+      return Promise.resolve({ ...existingJob, content, attachmentUrl });
+    });
+
+    interaction.options.getString.mockImplementation((name: string) => {
+      if (name === 'id') return 'uuid-10';
+      if (name === 'content') return 'new text';
+      return null;
+    });
+    interaction.options.getAttachment.mockReturnValue({ url: 'https://new.example.com/new.png' });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await editCommand.execute(interaction as any);
+
+    expect(capturedContent).toBe('new text');
+    expect(capturedAttachment).toBe('https://new.example.com/new.png');
+    expect(interaction.editReply).toHaveBeenCalledWith('Updated message uuid-10');
+  });
+
+  it('should remove attachment when new attachment url is empty string', async () => {
+    // Attachment option present but url is empty — edge case at Discord API level
+    const existingJob = { id: 'uuid-10', userId: 'user-123', content: 'content', attachmentUrl: 'https://old.example.com/img.png' };
+    mockRepo.findById.mockResolvedValue(existingJob);
+    mockRepo.updateContent.mockResolvedValue({ ...existingJob, attachmentUrl: '' });
+
+    interaction.options.getAttachment.mockReturnValue({ url: '' });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await editCommand.execute(interaction as any);
+
+    const updateCall = mockRepo.updateContent.mock.calls[0];
+    // When a new attachment is provided, its url (even empty) replaces the old one
+    expect(updateCall![3]).toBe('');
+  });
 });
