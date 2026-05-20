@@ -8,7 +8,6 @@ import { jobService } from './services/JobService.js';
 import { createWorker } from './worker/processor.js';
 import logger from './utils/logger.js';
 import type { CommandModule } from './types.js';
-import './discord.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
