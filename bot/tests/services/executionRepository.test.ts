@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 const mockPrismaExecution = {
-  create: vi.fn(),
+  upsert: vi.fn(),
   update: vi.fn(),
   findMany: vi.fn(),
   findUnique: vi.fn(),
@@ -24,17 +24,34 @@ describe('ExecutionRepository', () => {
   });
 
   describe('create()', () => {
-    it('persists bullmqJobId on creation', async () => {
+    it('persists bullmqJobId on first delivery', async () => {
       const now = new Date();
       const record = { id: 'exec-1', jobId: 'job-1', bullmqJobId: 'bq-1', attempt: 1, status: 'STARTED', startedAt: now, completedAt: null, error: null };
-      mockPrismaExecution.create.mockResolvedValue(record);
+      mockPrismaExecution.upsert.mockResolvedValue(record);
 
       const result = await repo.create('job-1', 1, 'bq-1');
 
-      expect(mockPrismaExecution.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({ jobId: 'job-1', bullmqJobId: 'bq-1', attempt: 1, status: 'STARTED' }),
+      expect(mockPrismaExecution.upsert).toHaveBeenCalledWith({
+        where: { bullmqJobId: 'bq-1' },
+        update: expect.objectContaining({ attempt: 1, status: 'STARTED', completedAt: null, error: null }),
+        create: expect.objectContaining({ jobId: 'job-1', bullmqJobId: 'bq-1', attempt: 1, status: 'STARTED' }),
       });
       expect(result.bullmqJobId).toBe('bq-1');
+    });
+
+    it('resets existing execution to STARTED on retry (upsert semantics)', async () => {
+      const record = { id: 'exec-1', jobId: 'job-1', bullmqJobId: 'bq-1', attempt: 2, status: 'STARTED', startedAt: new Date(), completedAt: null, error: null };
+      mockPrismaExecution.upsert.mockResolvedValue(record);
+
+      const result = await repo.create('job-1', 2, 'bq-1');
+
+      expect(mockPrismaExecution.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { bullmqJobId: 'bq-1' },
+          update: expect.objectContaining({ attempt: 2, status: 'STARTED' }),
+        }),
+      );
+      expect(result.attempt).toBe(2);
     });
   });
 

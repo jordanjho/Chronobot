@@ -218,6 +218,40 @@ describe('worker processor function', () => {
     expect(mockExecRepo.complete).toHaveBeenCalledWith('exec-new');
   });
 
+  it('should propagate error and not call complete when adapter throws directly', async () => {
+    mockExecRepo.create.mockResolvedValue({ id: 'exec-throw' });
+    mockAdapterExecute.mockRejectedValue(new Error('Discord API error'));
+
+    const job = {
+      id: 'job-1_2099-01-01T00_00_00.000Z',
+      data: { jobId: 'job-1', channelId: 'chan-1', isoTime: '2099-01-01T00:00:00.000Z' },
+      attemptsMade: 0,
+    };
+
+    await expect(processorFn(job)).rejects.toThrow('Discord API error');
+    expect(mockExecRepo.fail).not.toHaveBeenCalled();
+    expect(mockExecRepo.complete).not.toHaveBeenCalled();
+  });
+
+  it('should complete successfully when job is not found after send (orphaned BullMQ job)', async () => {
+    mockExecRepo.create.mockResolvedValue({ id: 'exec-orphan' });
+    mockAdapterExecute.mockResolvedValue({ success: true, messageId: 'msg-1' });
+    mockJobRepo.findById.mockResolvedValue(null);
+    mockExecRepo.complete.mockResolvedValue({});
+
+    const job = {
+      id: 'job-1_2099-01-01T00_00_00.000Z',
+      data: { jobId: 'job-1', channelId: 'chan-1', isoTime: '2099-01-01T00:00:00.000Z' },
+      attemptsMade: 0,
+    };
+
+    await processorFn(job);
+
+    expect(mockExecRepo.complete).toHaveBeenCalledWith('exec-orphan');
+    expect(mockJobRepo.hardDelete).not.toHaveBeenCalled();
+    expect(mockJobRepo.updateSendTimes).not.toHaveBeenCalled();
+  });
+
   it('should pass bullmqJobId to create on first delivery', async () => {
     const bullmqId = 'job-1_2099-01-01T00_00_00.000Z';
     mockExecRepo.create.mockResolvedValue({ id: 'exec-5' });

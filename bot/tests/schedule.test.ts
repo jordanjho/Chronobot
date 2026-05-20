@@ -124,6 +124,16 @@ describe('schedule command', () => {
     );
   });
 
+  it('should succeed when user has exactly 4 scheduled messages (at limit boundary)', async () => {
+    mockRepo.countByUserId.mockResolvedValue(4);
+    mockJobService.createJob.mockResolvedValue({ id: 'uuid-slot5', sendTimes: ['2099-12-31T23:59:00.000Z'] });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await scheduleCommand.execute(interaction as any);
+
+    expect(interaction.editReply).toHaveBeenCalledWith('Message scheduled with ID uuid-slot5');
+  });
+
   it('should schedule a once message successfully', async () => {
     mockRepo.countByUserId.mockResolvedValue(0);
     mockJobService.createJob.mockResolvedValue({ id: 'uuid-1', sendTimes: ['2099-12-31T23:59:00.000Z'] });
