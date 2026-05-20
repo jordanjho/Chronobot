@@ -143,7 +143,7 @@ describe('worker processor function', () => {
     mockExecRepo.complete.mockResolvedValue({});
 
     const job = {
-      id: `job-1:${isoTime}`,
+      id: `job-1_${isoTime.replace(/:/g, '_')}`,
       data: { jobId: 'job-1', channelId: 'chan-1', isoTime },
       attemptsMade: 0,
     };
@@ -164,7 +164,7 @@ describe('worker processor function', () => {
     mockExecRepo.complete.mockResolvedValue({});
 
     const job = {
-      id: `job-1:${isoTime1}`,
+      id: `job-1_${isoTime1.replace(/:/g, '_')}`,
       data: { jobId: 'job-1', channelId: 'chan-1', isoTime: isoTime1 },
       attemptsMade: 0,
     };

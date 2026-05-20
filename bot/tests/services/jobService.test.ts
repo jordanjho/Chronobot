@@ -86,7 +86,7 @@ describe('jobService.createJob', () => {
     expect(mockQueue.add).toHaveBeenCalledWith(
       'send',
       expect.objectContaining({ jobId: 'job-uuid-1', channelId: 'chan-1', isoTime: futureTime }),
-      expect.objectContaining({ jobId: `job-uuid-1:${futureTime}`, attempts: 3 }),
+      expect.objectContaining({ jobId: `job-uuid-1_${futureTime.replace(/:/g, '_')}`, attempts: 3 }),
     );
   });
 

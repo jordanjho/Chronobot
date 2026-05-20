@@ -8,6 +8,12 @@ import logger from '../utils/logger.js';
 
 dayjs.extend(utc);
 
+// BullMQ forbids ':' in custom job IDs (it uses ':' as a Redis key delimiter).
+// Format: <uuid>_<isoTime with ':' replaced by '_'>
+export function bullmqJobId(jobId: string, isoTime: string): string {
+  return `${jobId}_${isoTime.replace(/:/g, '_')}`;
+}
+
 export class JobService {
   async createJob(input: CreateJobInput, _client: Client): Promise<Job> {
     const job = await jobRepository.create(input);
@@ -21,7 +27,7 @@ export class JobService {
         'send',
         { jobId: job.id, channelId: job.channelId, isoTime },
         {
-          jobId: `${job.id}:${isoTime}`,
+          jobId: bullmqJobId(job.id, isoTime),
           delay,
           attempts: 3,
           backoff: { type: 'exponential', delay: 5000 },
@@ -39,7 +45,7 @@ export class JobService {
 
     // Remove pending BullMQ jobs for each send time
     for (const isoTime of job.sendTimes) {
-      const bullmqId = `${id}:${isoTime}`;
+      const bullmqId = bullmqJobId(id, isoTime);
       const queued = await jobQueue.getJob(bullmqId);
       if (queued) await queued.remove();
     }
@@ -56,7 +62,7 @@ export class JobService {
       for (const isoTime of job.sendTimes) {
         if (dayjs.utc(isoTime).isBefore(now)) continue;
 
-        const bullmqId = `${job.id}:${isoTime}`;
+        const bullmqId = bullmqJobId(job.id, isoTime);
         const existing = await jobQueue.getJob(bullmqId);
         if (existing) continue;
 

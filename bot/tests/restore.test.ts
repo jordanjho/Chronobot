@@ -83,7 +83,7 @@ describe('jobService.restoreJobs', () => {
     expect(mockQueue.add).toHaveBeenCalledWith(
       'send',
       expect.objectContaining({ jobId: 'uuid-1', channelId: 'chan-1', isoTime: futureDate }),
-      expect.objectContaining({ jobId: `uuid-1:${futureDate}` }),
+      expect.objectContaining({ jobId: `uuid-1_${futureDate.replace(/:/g, '_')}` }),
     );
   });
 
@@ -162,7 +162,7 @@ describe('jobService.restoreJobs', () => {
       },
     ]);
     // Simulate the job already exists in BullMQ
-    mockQueue.getJob.mockResolvedValue({ id: `uuid-10:${futureDate}` });
+    mockQueue.getJob.mockResolvedValue({ id: `uuid-10_${futureDate.replace(/:/g, '_')}` });
 
     await jobService.restoreJobs(mockClient);
 
@@ -226,7 +226,7 @@ describe('jobService.restoreJobs', () => {
     expect(mockQueue.add).toHaveBeenCalledWith(
       'send',
       expect.anything(),
-      expect.objectContaining({ jobId: `job-uuid-1:${futureDate}` }),
+      expect.objectContaining({ jobId: `job-uuid-1_${futureDate.replace(/:/g, '_')}` }),
     );
   });
 });
