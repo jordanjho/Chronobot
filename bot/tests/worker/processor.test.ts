@@ -25,7 +25,7 @@ vi.mock('../../src/config.js', () => ({
 const mockJobRepo = {
   findById: vi.fn(),
   updateSendTimes: vi.fn(),
-  markCompleted: vi.fn(),
+  hardDelete: vi.fn(),
   markFailed: vi.fn(),
 };
 vi.mock('../../src/repositories/JobRepository.js', () => ({
@@ -97,7 +97,7 @@ describe('worker processor function', () => {
     mockExecRepo.create.mockResolvedValue(execution);
     mockAdapterExecute.mockResolvedValue({ success: true, messageId: 'msg-1' });
     mockJobRepo.findById.mockResolvedValue({ id: 'job-1', sendTimes: ['2099-01-01T00:00:00.000Z'] });
-    mockJobRepo.markCompleted.mockResolvedValue({});
+    mockJobRepo.hardDelete.mockResolvedValue(undefined);
     mockExecRepo.complete.mockResolvedValue({});
 
     const job = {
@@ -134,12 +134,12 @@ describe('worker processor function', () => {
     expect(mockExecRepo.complete).not.toHaveBeenCalled();
   });
 
-  it('should mark job completed when no remaining sendTimes', async () => {
+  it('should hard-delete job when no remaining sendTimes', async () => {
     const isoTime = '2099-01-01T00:00:00.000Z';
     mockExecRepo.create.mockResolvedValue({ id: 'exec-3' });
     mockAdapterExecute.mockResolvedValue({ success: true, messageId: 'msg-1' });
     mockJobRepo.findById.mockResolvedValue({ id: 'job-1', sendTimes: [isoTime] });
-    mockJobRepo.markCompleted.mockResolvedValue({});
+    mockJobRepo.hardDelete.mockResolvedValue(undefined);
     mockExecRepo.complete.mockResolvedValue({});
 
     const job = {
@@ -150,7 +150,7 @@ describe('worker processor function', () => {
 
     await processorFn(job);
 
-    expect(mockJobRepo.markCompleted).toHaveBeenCalledWith('job-1');
+    expect(mockJobRepo.hardDelete).toHaveBeenCalledWith('job-1');
     expect(mockJobRepo.updateSendTimes).not.toHaveBeenCalled();
   });
 
@@ -172,7 +172,7 @@ describe('worker processor function', () => {
     await processorFn(job);
 
     expect(mockJobRepo.updateSendTimes).toHaveBeenCalledWith('job-1', [isoTime2]);
-    expect(mockJobRepo.markCompleted).not.toHaveBeenCalled();
+    expect(mockJobRepo.hardDelete).not.toHaveBeenCalled();
   });
 });
 

@@ -72,7 +72,7 @@ export class JobService {
       // Prune missed send times that accumulated during downtime
       if (staleTimes > 0) {
         if (futureTimes.length === 0) {
-          await jobRepository.markCompleted(job.id);
+          await jobRepository.hardDelete(job.id);
           pruned += staleTimes;
           continue;
         }
