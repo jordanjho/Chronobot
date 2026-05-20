@@ -230,6 +230,23 @@ describe('JobRepository', () => {
     expect(result).toEqual([]);
   });
 
+  // --- findQueuedByUserId ---
+
+  it('findQueuedByUserId queries by both QUEUED status and userId', async () => {
+    const jobs = [{ id: 'j12', status: 'QUEUED', userId: 'user-x' }];
+    mockPrisma.job.findMany.mockResolvedValue(jobs);
+
+    const result = await repo.findQueuedByUserId('user-x');
+    expect(mockPrisma.job.findMany).toHaveBeenCalledWith({ where: { status: 'QUEUED', userId: 'user-x' } });
+    expect(result).toBe(jobs);
+  });
+
+  it('findQueuedByUserId returns empty array when user has no queued jobs', async () => {
+    mockPrisma.job.findMany.mockResolvedValue([]);
+    const result = await repo.findQueuedByUserId('user-none');
+    expect(result).toEqual([]);
+  });
+
   // --- markFailed ---
 
   it('markFailed sets status to FAILED', async () => {
