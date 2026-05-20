@@ -3,8 +3,18 @@ import { prisma } from '../db/prisma.js';
 
 export class ExecutionRepository {
   async create(jobId: string, attempt: number, bullmqJobId: string): Promise<Execution> {
-    return prisma.execution.create({
-      data: {
+    // Upsert so retries with the same BullMQ job ID reset the record rather than
+    // violating the unique constraint on bullmq_job_id.
+    return prisma.execution.upsert({
+      where: { bullmqJobId },
+      update: {
+        attempt,
+        status: 'STARTED',
+        startedAt: new Date(),
+        completedAt: null,
+        error: null,
+      },
+      create: {
         jobId,
         bullmqJobId,
         attempt,
