@@ -16,7 +16,6 @@ const mockRepo = {
   countByUserId: vi.fn(),
   create: vi.fn(),
   findById: vi.fn(),
-  findAllByUserId: vi.fn(),
   findQueuedByUserId: vi.fn(),
   findAll: vi.fn(),
   updateSendTimes: vi.fn(),
@@ -184,14 +183,15 @@ describe('list command', () => {
     await listCommand.execute(interaction as any);
   });
 
-  it('should propagate db error from findAllByUserId', async () => {
-    mockRepo.findAllByUserId.mockRejectedValue(new Error('DB unreachable'));
+  it('should propagate db error from findQueuedByUserId', async () => {
+    mockRepo.findQueuedByUserId.mockRejectedValue(new Error('DB unreachable'));
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await expect(listCommand.execute(interaction as any)).rejects.toThrow('DB unreachable');
   });
 
-  it('should display past sendTimes as-is (no client-side filtering in current implementation)', async () => {
+  it('should reply with no messages when all sendTimes are in the past', async () => {
+    // PR3A adds client-side filtering: jobs whose only sendTimes are past are hidden
     const pastTime = '2000-01-01T00:00:00.000Z';
     const jobs = [
       {
@@ -207,13 +207,12 @@ describe('list command', () => {
         updatedAt: new Date(),
       },
     ];
-    mockRepo.findAllByUserId.mockResolvedValue(jobs);
+    mockRepo.findQueuedByUserId.mockResolvedValue(jobs);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await listCommand.execute(interaction as any);
 
-    const reply = interaction.editReply.mock.calls[0][0] as string;
-    expect(reply).toContain(pastTime);
+    expect(interaction.editReply).toHaveBeenCalledWith('No messages scheduled.');
   });
 
   it('should show all fields for a job with frequency and multiple send times', async () => {
@@ -233,7 +232,7 @@ describe('list command', () => {
         updatedAt: new Date(),
       },
     ];
-    mockRepo.findAllByUserId.mockResolvedValue(jobs);
+    mockRepo.findQueuedByUserId.mockResolvedValue(jobs);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await listCommand.execute(interaction as any);
