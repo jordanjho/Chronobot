@@ -184,6 +184,65 @@ describe('list command', () => {
     await listCommand.execute(interaction as any);
   });
 
+  it('should propagate db error from findAllByUserId', async () => {
+    mockRepo.findAllByUserId.mockRejectedValue(new Error('DB unreachable'));
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await expect(listCommand.execute(interaction as any)).rejects.toThrow('DB unreachable');
+  });
+
+  it('should display past sendTimes as-is (no client-side filtering in current implementation)', async () => {
+    const pastTime = '2000-01-01T00:00:00.000Z';
+    const jobs = [
+      {
+        id: 'uuid-past',
+        channelId: 'chan-1',
+        sendTimes: [pastTime],
+        content: 'Past message',
+        frequency: 'once',
+        attachmentUrl: null,
+        userId: 'user-123',
+        status: 'QUEUED',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ];
+    mockRepo.findAllByUserId.mockResolvedValue(jobs);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await listCommand.execute(interaction as any);
+
+    const reply = interaction.editReply.mock.calls[0][0] as string;
+    expect(reply).toContain(pastTime);
+  });
+
+  it('should show all fields for a job with frequency and multiple send times', async () => {
+    const t1 = '2030-01-01T10:00:00.000Z';
+    const t2 = '2030-01-02T10:00:00.000Z';
+    const jobs = [
+      {
+        id: 'uuid-multi',
+        channelId: 'chan-multi',
+        sendTimes: [t1, t2],
+        content: 'Daily reminder',
+        frequency: 'daily',
+        attachmentUrl: null,
+        userId: 'user-123',
+        status: 'QUEUED',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ];
+    mockRepo.findAllByUserId.mockResolvedValue(jobs);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await listCommand.execute(interaction as any);
+
+    const reply = interaction.editReply.mock.calls[0][0] as string;
+    expect(reply).toContain(t1);
+    expect(reply).toContain(t2);
+  });
+
   it('should show attachment url when present', async () => {
     const jobs = [
       {

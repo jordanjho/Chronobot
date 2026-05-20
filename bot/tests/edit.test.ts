@@ -222,4 +222,32 @@ describe('edit command', () => {
     const updateCall = mockRepo.updateContent.mock.calls[0];
     expect(updateCall![3]).toBe('');
   });
+
+  it('should propagate db error from findById', async () => {
+    mockRepo.findById.mockRejectedValue(new Error('DB timeout'));
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await expect(editCommand.execute(interaction as any)).rejects.toThrow('DB timeout');
+  });
+
+  it('should propagate db error from updateContent', async () => {
+    mockRepo.findById.mockResolvedValue({ id: 'uuid-10', userId: 'user-123', content: 'old', attachmentUrl: null });
+    mockRepo.updateContent.mockRejectedValue(new Error('Write failed'));
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await expect(editCommand.execute(interaction as any)).rejects.toThrow('Write failed');
+  });
+
+  it('should not allow user A to edit user B\'s message', async () => {
+    mockRepo.findById.mockResolvedValue({ id: 'uuid-10', userId: 'user-B', content: 'secret', attachmentUrl: null });
+    interaction.user = { id: 'user-A' };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await editCommand.execute(interaction as any);
+
+    expect(mockRepo.updateContent).not.toHaveBeenCalled();
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      'Message not found or you do not have permission to edit this message.',
+    );
+  });
 });

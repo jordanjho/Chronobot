@@ -103,4 +103,25 @@ describe('delete command', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await deleteCommand.execute(interaction as any);
   });
+
+  it('should propagate error thrown from cancelJob', async () => {
+    mockJobService.cancelJob.mockRejectedValue(new Error('Queue write failed'));
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await expect(deleteCommand.execute(interaction as any)).rejects.toThrow('Queue write failed');
+  });
+
+  it('should not allow user A to delete user B\'s message (cancelJob returns false)', async () => {
+    interaction.user = { id: 'attacker' };
+    // jobService.cancelJob checks ownership and returns false for wrong user
+    mockJobService.cancelJob.mockResolvedValue(false);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await deleteCommand.execute(interaction as any);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      'Message not found or you do not have permission to delete this message.',
+    );
+    expect(mockJobService.cancelJob).toHaveBeenCalledWith('uuid-42', 'attacker');
+  });
 });

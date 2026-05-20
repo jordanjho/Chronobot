@@ -262,4 +262,13 @@ describe('jobService.restoreJobs', () => {
 
     expect(mockRepo.hardDelete).toHaveBeenCalledWith('dead-job');
   });
+
+  it('should not enqueue jobs with no sendTimes', async () => {
+    mockRepo.findQueued.mockResolvedValue([
+      { id: 'uuid-empty', channelId: 'chan-e', sendTimes: [], content: 'no times', frequency: 'once', attachmentUrl: null, userId: 'u', status: 'QUEUED', createdAt: new Date(), updatedAt: new Date() },
+    ]);
+
+    await jobService.restoreJobs(mockClient);
+    expect(mockQueue.add).not.toHaveBeenCalled();
+  });
 });

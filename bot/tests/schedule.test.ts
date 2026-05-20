@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type MockInstance } from 'vitest';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc.js';
+dayjs.extend(utc);
 import { createMockInteraction } from './helpers/interaction.js';
 
 // Mock the logger
@@ -187,6 +190,90 @@ describe('schedule command', () => {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await expect(scheduleCommand.execute(interaction as any)).rejects.toThrow('Queue failed');
+  });
+
+  it('should propagate db error from countByUserId', async () => {
+    mockRepo.countByUserId.mockRejectedValue(new Error('DB connection lost'));
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await expect(scheduleCommand.execute(interaction as any)).rejects.toThrow('DB connection lost');
+  });
+
+  it('should allow scheduling when user has 4 messages (under the 5 limit)', async () => {
+    mockRepo.countByUserId.mockResolvedValue(4);
+    mockJobService.createJob.mockResolvedValue({ id: 'uuid-ok', sendTimes: ['2099-12-31T23:59:00.000Z'] });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await scheduleCommand.execute(interaction as any);
+
+    expect(interaction.editReply).toHaveBeenCalledWith('Message scheduled with ID uuid-ok');
+  });
+
+  it('should reject timestamp within 10 seconds of now', async () => {
+    // 5 seconds from now — inside the 10-second guard
+    const nearFuture = dayjs.utc().add(5, 'second').format('YYYY-MM-DD HH:mm');
+    interaction.options.getString.mockImplementation((name: string) => {
+      if (name === 'frequency') return 'once';
+      if (name === 'timestamp') return nearFuture;
+      return null;
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await scheduleCommand.execute(interaction as any);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      'Invalid or distant timestamp. Format: YYYY-MM-DD HH:mm UTC.',
+    );
+  });
+
+  it('daily times are exactly 1 day apart', async () => {
+    interaction.options.getString.mockImplementation((name: string) => {
+      if (name === 'frequency') return 'daily';
+      if (name === 'timestamp') return '2099-06-01 09:00';
+      if (name === 'content') return 'Daily';
+      return null;
+    });
+    mockRepo.countByUserId.mockResolvedValue(0);
+
+    let capturedTimes: string[] = [];
+    mockJobService.createJob.mockImplementation((data: { sendTimes: string[] }) => {
+      capturedTimes = data.sendTimes;
+      return Promise.resolve({ id: 'uuid-daily', sendTimes: data.sendTimes });
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await scheduleCommand.execute(interaction as any);
+
+    expect(capturedTimes).toHaveLength(7);
+    for (let i = 1; i < capturedTimes.length; i++) {
+      const diff = dayjs(capturedTimes[i]).diff(dayjs(capturedTimes[i - 1]), 'hour');
+      expect(diff).toBe(24);
+    }
+  });
+
+  it('weekly times are exactly 7 days apart', async () => {
+    interaction.options.getString.mockImplementation((name: string) => {
+      if (name === 'frequency') return 'weekly';
+      if (name === 'timestamp') return '2099-06-01 09:00';
+      if (name === 'content') return 'Weekly';
+      return null;
+    });
+    mockRepo.countByUserId.mockResolvedValue(0);
+
+    let capturedTimes: string[] = [];
+    mockJobService.createJob.mockImplementation((data: { sendTimes: string[] }) => {
+      capturedTimes = data.sendTimes;
+      return Promise.resolve({ id: 'uuid-weekly', sendTimes: data.sendTimes });
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await scheduleCommand.execute(interaction as any);
+
+    expect(capturedTimes).toHaveLength(4);
+    for (let i = 1; i < capturedTimes.length; i++) {
+      const diff = dayjs(capturedTimes[i]).diff(dayjs(capturedTimes[i - 1]), 'day');
+      expect(diff).toBe(7);
+    }
   });
 
   it('should pass attachment url to createJob', async () => {
