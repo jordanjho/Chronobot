@@ -208,4 +208,52 @@ describe('list command', () => {
     const reply = interaction.editReply.mock.calls[0][0] as string;
     expect(reply).toContain('https://cdn.example.com/file.gif');
   });
+
+  it('should hide stale QUEUED jobs whose sendTimes are all in the past', async () => {
+    const pastTime = new Date(Date.now() - 3600000).toISOString();
+    mockRepo.findQueuedByUserId.mockResolvedValue([
+      {
+        id: 'uuid-stale',
+        channelId: 'chan-1',
+        sendTimes: [pastTime],
+        content: 'Old message',
+        frequency: 'once',
+        attachmentUrl: null,
+        userId: 'user-123',
+        status: 'QUEUED',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await listCommand.execute(interaction as any);
+
+    expect(interaction.editReply).toHaveBeenCalledWith('No messages scheduled.');
+  });
+
+  it('should show a job with mixed times when at least one sendTime is future', async () => {
+    const pastTime = new Date(Date.now() - 3600000).toISOString();
+    const futureTime = new Date(Date.now() + 3600000).toISOString();
+    mockRepo.findQueuedByUserId.mockResolvedValue([
+      {
+        id: 'uuid-mixed',
+        channelId: 'chan-1',
+        sendTimes: [pastTime, futureTime],
+        content: 'Mixed message',
+        frequency: 'daily',
+        attachmentUrl: null,
+        userId: 'user-123',
+        status: 'QUEUED',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await listCommand.execute(interaction as any);
+
+    const reply = interaction.editReply.mock.calls[0][0] as string;
+    expect(reply).toContain('uuid-mixed');
+  });
 });
