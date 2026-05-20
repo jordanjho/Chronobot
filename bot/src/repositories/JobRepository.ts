@@ -36,8 +36,12 @@ export class JobRepository {
     return prisma.job.findMany();
   }
 
+  async findQueuedByUserId(userId: string): Promise<Job[]> {
+    return prisma.job.findMany({ where: { userId, status: 'QUEUED' } });
+  }
+
   async countByUserId(userId: string): Promise<number> {
-    return prisma.job.count({ where: { userId } });
+    return prisma.job.count({ where: { userId, status: 'QUEUED' } });
   }
 
   async updateSendTimes(id: string, sendTimes: string[]): Promise<Job> {

@@ -17,6 +17,7 @@ const mockRepo = {
   create: vi.fn(),
   findById: vi.fn(),
   findAllByUserId: vi.fn(),
+  findQueuedByUserId: vi.fn(),
   findAll: vi.fn(),
   updateSendTimes: vi.fn(),
   updateContent: vi.fn(),
@@ -46,7 +47,7 @@ describe('list command', () => {
   });
 
   it('should reply with no messages when db returns empty array', async () => {
-    mockRepo.findAllByUserId.mockResolvedValue([]);
+    mockRepo.findQueuedByUserId.mockResolvedValue([]);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await listCommand.execute(interaction as any);
@@ -70,7 +71,7 @@ describe('list command', () => {
       },
     ];
 
-    mockRepo.findAllByUserId.mockResolvedValue(jobs);
+    mockRepo.findQueuedByUserId.mockResolvedValue(jobs);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await listCommand.execute(interaction as any);
@@ -99,7 +100,7 @@ describe('list command', () => {
       },
     ];
 
-    mockRepo.findAllByUserId.mockResolvedValue(jobs);
+    mockRepo.findQueuedByUserId.mockResolvedValue(jobs);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await listCommand.execute(interaction as any);
@@ -124,7 +125,7 @@ describe('list command', () => {
       },
     ];
 
-    mockRepo.findAllByUserId.mockResolvedValue(jobs);
+    mockRepo.findQueuedByUserId.mockResolvedValue(jobs);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await listCommand.execute(interaction as any);
@@ -161,7 +162,7 @@ describe('list command', () => {
       },
     ];
 
-    mockRepo.findAllByUserId.mockResolvedValue(jobs);
+    mockRepo.findQueuedByUserId.mockResolvedValue(jobs);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await listCommand.execute(interaction as any);
@@ -174,7 +175,7 @@ describe('list command', () => {
 
   it('should query messages by user id', async () => {
     interaction.user = { id: 'my-user-id' };
-    mockRepo.findAllByUserId.mockImplementation((userId: string) => {
+    mockRepo.findQueuedByUserId.mockImplementation((userId: string) => {
       expect(userId).toBe('my-user-id');
       return Promise.resolve([]);
     });
@@ -199,7 +200,7 @@ describe('list command', () => {
       },
     ];
 
-    mockRepo.findAllByUserId.mockResolvedValue(jobs);
+    mockRepo.findQueuedByUserId.mockResolvedValue(jobs);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await listCommand.execute(interaction as any);
