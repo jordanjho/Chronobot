@@ -2,7 +2,8 @@ import type { Execution } from '@prisma/client';
 import { prisma } from '../db/prisma.js';
 
 export class ExecutionRepository {
-  async create(jobId: string, attempt: number): Promise<Execution> {
+  // bullmqJobId stored in DB by PR3A migration; accepted here now to avoid merge conflict
+  async create(jobId: string, attempt: number, bullmqJobId: string): Promise<Execution> {
     return prisma.execution.create({
       data: {
         jobId,

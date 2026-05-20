@@ -19,7 +19,8 @@ export function createWorker(client: Client): Worker<QueuedJobData> {
     'jobs',
     async (job) => {
       const { jobId, channelId, isoTime } = job.data;
-      logger.info({ jobId, bullmqJobId: job.id, attempt: job.attemptsMade + 1 }, 'Processing job');
+      const bullmqId = job.id!;
+      logger.info({ jobId, bullmqJobId: bullmqId, attempt: job.attemptsMade + 1 }, 'Processing job');
 
       activeWorkers.inc();
       const startMs = Date.now();
@@ -28,7 +29,7 @@ export function createWorker(client: Client): Worker<QueuedJobData> {
       jobScheduleDelayMs.observe(Date.now() - intendedMs);
 
       try {
-        const execution = await executionRepository.create(jobId, job.attemptsMade + 1);
+        const execution = await executionRepository.create(jobId, job.attemptsMade + 1, bullmqId);
 
         const result = await adapter.execute({ jobId, channelId, isoTime });
 
@@ -72,8 +73,8 @@ export function createWorker(client: Client): Worker<QueuedJobData> {
     if (job.attemptsMade >= (job.opts.attempts ?? 3)) {
       jobsFailed.labels({ final: 'true' }).inc();
       jobsDead.inc();
-      await jobRepository.markFailed(jobId);
-      logger.error({ jobId, error: err.message }, 'Job exhausted retries — marked FAILED');
+      await jobRepository.markDead(jobId);
+      logger.error({ jobId, error: err.message }, 'Job exhausted retries — marked DEAD');
     }
     else {
       logger.warn({ jobId, attempt: job.attemptsMade, error: err.message }, 'Job attempt failed, will retry');

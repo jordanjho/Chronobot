@@ -28,7 +28,7 @@ describe('ExecutionRepository', () => {
     it('inserts with STARTED status and current time', async () => {
       mockPrismaExecution.create.mockResolvedValue(baseExecution);
 
-      await executionRepository.create('job-1', 1);
+      await executionRepository.create('job-1', 1, 'bullmq-id-1');
 
       expect(mockPrismaExecution.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
@@ -42,7 +42,7 @@ describe('ExecutionRepository', () => {
     it('includes startedAt timestamp', async () => {
       mockPrismaExecution.create.mockResolvedValue(baseExecution);
 
-      await executionRepository.create('job-1', 2);
+      await executionRepository.create('job-1', 2, 'bullmq-id-2');
 
       const call = mockPrismaExecution.create.mock.calls[0]![0];
       expect(call.data.startedAt).toBeInstanceOf(Date);
@@ -59,7 +59,7 @@ describe('ExecutionRepository', () => {
     it('tracks attempt number correctly for retries', async () => {
       mockPrismaExecution.create.mockResolvedValue({ ...baseExecution, attempt: 3 });
 
-      await executionRepository.create('job-1', 3);
+      await executionRepository.create('job-1', 3, 'bullmq-id-3');
 
       expect(mockPrismaExecution.create).toHaveBeenCalledWith({
         data: expect.objectContaining({ attempt: 3 }),

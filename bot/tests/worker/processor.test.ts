@@ -27,6 +27,7 @@ const mockJobRepo = {
   updateSendTimes: vi.fn(),
   hardDelete: vi.fn(),
   markFailed: vi.fn(),
+  markDead: vi.fn(),
 };
 vi.mock('../../src/repositories/JobRepository.js', () => ({
   jobRepository: mockJobRepo,
@@ -119,7 +120,7 @@ describe('worker processor function', () => {
 
     await processorFn(job);
 
-    expect(mockExecRepo.create).toHaveBeenCalledWith('job-1', 1);
+    expect(mockExecRepo.create).toHaveBeenCalledWith('job-1', 1, 'job-1:2099-01-01T00:00:00.000Z');
     expect(mockAdapterExecute).toHaveBeenCalledWith({
       jobId: 'job-1',
       channelId: 'chan-1',
@@ -219,8 +220,8 @@ describe('worker failed event handler', () => {
     failedHandler = failedCall![1];
   });
 
-  it('should mark job FAILED when attempts exhausted', async () => {
-    mockJobRepo.markFailed.mockResolvedValue({});
+  it('should mark job DEAD when attempts exhausted', async () => {
+    mockJobRepo.markDead.mockResolvedValue({});
     const job = {
       data: { jobId: 'job-1' },
       attemptsMade: 3,
@@ -229,10 +230,10 @@ describe('worker failed event handler', () => {
 
     await failedHandler(job, new Error('Adapter error'));
 
-    expect(mockJobRepo.markFailed).toHaveBeenCalledWith('job-1');
+    expect(mockJobRepo.markDead).toHaveBeenCalledWith('job-1');
   });
 
-  it('should NOT mark job FAILED when retries remain', async () => {
+  it('should NOT mark job DEAD when retries remain', async () => {
     const job = {
       data: { jobId: 'job-1' },
       attemptsMade: 1,
@@ -241,7 +242,7 @@ describe('worker failed event handler', () => {
 
     await failedHandler(job, new Error('Transient error'));
 
-    expect(mockJobRepo.markFailed).not.toHaveBeenCalled();
+    expect(mockJobRepo.markDead).not.toHaveBeenCalled();
   });
 
   it('should handle null job gracefully', async () => {
@@ -322,7 +323,7 @@ describe('worker failed event handler — metrics', () => {
   });
 
   it('increments jobsFailed final=true and jobsDead on retry exhaustion', async () => {
-    mockJobRepo.markFailed.mockResolvedValue({});
+    mockJobRepo.markDead.mockResolvedValue({});
     const job = { data: { jobId: 'job-1' }, attemptsMade: 3, opts: { attempts: 3 } };
 
     await failedHandler(job, new Error('Exhausted'));
