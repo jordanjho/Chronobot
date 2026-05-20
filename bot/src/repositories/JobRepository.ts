@@ -95,6 +95,13 @@ export class JobRepository {
       data: { status: 'FAILED' as JobStatus },
     });
   }
+
+  async markDead(id: string): Promise<Job> {
+    return prisma.job.update({
+      where: { id },
+      data: { status: 'DEAD' as JobStatus },
+    });
+  }
 }
 
 export const jobRepository = new JobRepository();
