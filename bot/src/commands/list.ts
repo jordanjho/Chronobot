@@ -1,7 +1,11 @@
 import { SlashCommandBuilder } from 'discord.js';
 import type { ChatInputCommandInteraction } from 'discord.js';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc.js';
 import { jobRepository } from '../repositories/JobRepository.js';
 import logger from '../utils/logger.js';
+
+dayjs.extend(utc);
 
 export default {
   data: new SlashCommandBuilder()
@@ -9,7 +13,9 @@ export default {
     .setDescription('List all scheduled messages'),
   async execute(interaction: ChatInputCommandInteraction): Promise<void> {
     const userId = interaction.user.id;
-    const rows = await jobRepository.findAllByUserId(userId);
+    const now = dayjs.utc();
+    const queued = await jobRepository.findQueuedByUserId(userId);
+    const rows = queued.filter((r) => r.sendTimes.some((t) => dayjs.utc(t).isAfter(now)));
 
     if (rows.length === 0) {
       await interaction.editReply('No messages scheduled.');

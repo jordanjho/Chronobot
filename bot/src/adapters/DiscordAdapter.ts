@@ -15,7 +15,15 @@ export class DiscordAdapter implements Adapter {
       return { success: false, error: `Job ${jobId} not found` };
     }
 
-    const channel = await this.client.channels.fetch(channelId);
+    let channel;
+    try {
+      channel = await this.client.channels.fetch(channelId);
+    } catch (err) {
+      const error = err instanceof Error ? err.message : 'Failed to fetch channel';
+      logger.error({ jobId, channelId, error }, 'Failed to fetch Discord channel');
+      return { success: false, error };
+    }
+
     const sendable = channel as TextChannel | NewsChannel | ThreadChannel | null;
     if (!sendable || !('send' in sendable)) {
       return { success: false, error: `Channel ${channelId} is not sendable` };
@@ -24,9 +32,14 @@ export class DiscordAdapter implements Adapter {
     const msgPayload: { content: string; files?: string[] } = { content: job.content };
     if (job.attachmentUrl) msgPayload.files = [job.attachmentUrl];
 
-    const message = await sendable.send(msgPayload);
-    logger.info({ jobId, channelId, messageId: message.id }, 'Discord message sent');
-
-    return { success: true, messageId: message.id };
+    try {
+      const message = await sendable.send(msgPayload);
+      logger.info({ jobId, channelId, messageId: message.id }, 'Discord message sent');
+      return { success: true, messageId: message.id };
+    } catch (err) {
+      const error = err instanceof Error ? err.message : 'Failed to send message';
+      logger.error({ jobId, channelId, error }, 'Failed to send Discord message');
+      return { success: false, error };
+    }
   }
 }

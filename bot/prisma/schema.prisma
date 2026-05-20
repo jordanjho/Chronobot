@@ -25,14 +25,15 @@ model Job {
 }
 
 model Execution {
-  id          String          @id @default(uuid()) @db.Uuid
-  jobId       String          @map("job_id") @db.Uuid
-  attempt     Int
-  status      ExecutionStatus
-  startedAt   DateTime        @map("started_at")
-  completedAt DateTime?       @map("completed_at")
-  error       String?
-  job         Job             @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  id           String          @id @default(uuid()) @db.Uuid
+  jobId        String          @map("job_id") @db.Uuid
+  bullmqJobId  String          @unique @map("bullmq_job_id")
+  attempt      Int
+  status       ExecutionStatus
+  startedAt    DateTime        @map("started_at")
+  completedAt  DateTime?       @map("completed_at")
+  error        String?
+  job          Job             @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
   @@map("executions")
 }

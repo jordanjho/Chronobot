@@ -91,4 +91,37 @@ describe('DiscordAdapter', () => {
     const payload = mockSend.mock.calls[0]![0];
     expect(payload.files).toBeUndefined();
   });
+
+  it('should send attachment-only message when content is empty string', async () => {
+    mockRepo.findById.mockResolvedValue({ id: 'job-4', content: '', attachmentUrl: 'https://cdn.example.com/img.png' });
+
+    const adapter = new DiscordAdapter(mockClient);
+    const result = await adapter.execute({ jobId: 'job-4', channelId: 'chan-1', isoTime: '2099-01-01T00:00:00.000Z' });
+
+    expect(result.success).toBe(true);
+    expect(mockSend).toHaveBeenCalledWith({ content: '', files: ['https://cdn.example.com/img.png'] });
+  });
+
+  it('should return failure when channel.send throws (e.g. Missing Permissions)', async () => {
+    mockRepo.findById.mockResolvedValue({ id: 'job-5', content: 'Hello', attachmentUrl: null });
+    mockSend.mockRejectedValue(new Error('Missing Permissions'));
+
+    const adapter = new DiscordAdapter(mockClient);
+    const result = await adapter.execute({ jobId: 'job-5', channelId: 'chan-1', isoTime: '2099-01-01T00:00:00.000Z' });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Missing Permissions');
+  });
+
+  it('should return failure when channels.fetch throws (e.g. Unknown Channel)', async () => {
+    mockRepo.findById.mockResolvedValue({ id: 'job-6', content: 'Hello', attachmentUrl: null });
+    mockFetch.mockRejectedValue(new Error('Unknown Channel'));
+
+    const adapter = new DiscordAdapter(mockClient);
+    const result = await adapter.execute({ jobId: 'job-6', channelId: 'chan-deleted', isoTime: '2099-01-01T00:00:00.000Z' });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Unknown Channel');
+    expect(mockSend).not.toHaveBeenCalled();
+  });
 });
