@@ -208,4 +208,18 @@ describe('edit command', () => {
 
     expect(interaction.editReply).toHaveBeenCalledWith('Updated message uuid-10');
   });
+
+  it('should remove attachment when new attachment url is empty string', async () => {
+    const existingJob = { id: 'uuid-10', userId: 'user-123', content: 'content', attachmentUrl: 'https://old.example.com/img.png' };
+    mockRepo.findById.mockResolvedValue(existingJob);
+    mockRepo.updateContent.mockResolvedValue({ ...existingJob, attachmentUrl: '' });
+
+    interaction.options.getAttachment.mockReturnValue({ url: '' });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await editCommand.execute(interaction as any);
+
+    const updateCall = mockRepo.updateContent.mock.calls[0];
+    expect(updateCall![3]).toBe('');
+  });
 });
