@@ -4,6 +4,7 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import { jobRepository, type CreateJobInput } from '../repositories/JobRepository.js';
 import { jobQueue } from '../queue/queues.js';
+import { jobsEnqueued } from '../metrics/metrics.js';
 import logger from '../utils/logger.js';
 
 dayjs.extend(utc);
@@ -34,6 +35,7 @@ export class JobService {
             backoff: { type: 'exponential', delay: 5000 },
           },
         );
+        jobsEnqueued.labels({ frequency: input.frequency }).inc();
       }
     } catch (err) {
       // Roll back the DB record so the user doesn't see a ghost job
