@@ -22,6 +22,13 @@ export function createWorker(client: Client): Worker<QueuedJobData> {
       const bullmqId = job.id!;
       logger.info({ jobId, bullmqJobId: bullmqId, attempt: job.attemptsMade + 1 }, 'Processing job');
 
+      // Idempotency guard: skip if already COMPLETED for this bullmqJobId
+      const existing = await executionRepository.findByBullmqJobId(bullmqId);
+      if (existing?.status === 'COMPLETED') {
+        logger.info({ jobId, bullmqJobId: bullmqId }, 'Duplicate delivery — skipping (already completed)');
+        return;
+      }
+
       activeWorkers.inc();
       const startMs = Date.now();
 

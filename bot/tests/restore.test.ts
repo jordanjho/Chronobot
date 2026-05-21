@@ -250,4 +250,16 @@ describe('jobService.restoreJobs', () => {
     expect(mockRepo.hardDelete).toHaveBeenCalledWith('old-completed');
     expect(mockRepo.hardDelete).toHaveBeenCalledWith('old-failed');
   });
+
+  it('should hard-delete DEAD jobs on startup', async () => {
+    mockRepo.findTerminal.mockResolvedValue([
+      { id: 'dead-job', sendTimes: [], status: 'DEAD' },
+    ]);
+    mockRepo.findQueued.mockResolvedValue([]);
+    mockRepo.hardDelete.mockResolvedValue(undefined);
+
+    await jobService.restoreJobs(mockClient);
+
+    expect(mockRepo.hardDelete).toHaveBeenCalledWith('dead-job');
+  });
 });
