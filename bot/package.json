@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node --import tsx/esm src/index.ts",
     "build": "tsc",
+    "typecheck": "tsc --noEmit",
     "deploy-commands": "node --import tsx/esm deploy-commands.ts",
     "test": "vitest run",
     "test:watch": "vitest",
