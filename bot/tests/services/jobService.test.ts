@@ -175,6 +175,31 @@ describe('jobService.createJob', () => {
     expect(mockRepo.hardDelete).toHaveBeenCalledWith('job-uuid-rollback');
   });
 
+  it('should not call queue.add when all sendTimes are in the past', async () => {
+    const pastTime1 = new Date(Date.now() - 7200000).toISOString();
+    const pastTime2 = new Date(Date.now() - 3600000).toISOString();
+    mockRepo.create.mockResolvedValue({
+      id: 'job-allpast',
+      channelId: 'chan-1',
+      userId: 'user-1',
+      content: 'Test',
+      frequency: 'daily',
+      sendTimes: [pastTime1, pastTime2],
+      attachmentUrl: null,
+      status: 'QUEUED',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const result = await jobService.createJob(
+      { channelId: 'chan-1', userId: 'user-1', content: 'Test', frequency: 'daily', sendTimes: [pastTime1, pastTime2] },
+      mockClient,
+    );
+
+    expect(result.id).toBe('job-allpast');
+    expect(mockQueue.add).not.toHaveBeenCalled();
+  });
+
   it('should use exponential backoff in queue options', async () => {
     const futureTime = new Date(Date.now() + 3600000).toISOString();
     mockRepo.create.mockResolvedValue({
@@ -294,5 +319,16 @@ describe('bullmqJobId helper', () => {
   it('handles isoTime with no colons gracefully (no-op)', () => {
     const result = bullmqJobId('job-2', '2099-01-01T000000.000Z');
     expect(result).toBe('job-2_2099-01-01T000000.000Z');
+  });
+});
+
+describe('bullmqJobId helper', () => {
+  it('replaces colons with underscores', () => {
+    expect(bullmqJobId('abc-uuid', '2026-05-20T12:30:00.000Z')).toBe('abc-uuid_2026-05-20T12_30_00.000Z');
+  });
+
+  it('produces an ID with no colons', () => {
+    const id = bullmqJobId('some-uuid', '2026-01-01T00:00:00.000Z');
+    expect(id).not.toContain(':');
   });
 });

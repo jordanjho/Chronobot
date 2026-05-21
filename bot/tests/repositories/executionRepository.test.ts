@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 const mockPrismaExecution = {
-  create: vi.fn(),
+  upsert: vi.fn(),
   update: vi.fn(),
   findMany: vi.fn(),
+  findUnique: vi.fn(),
 };
 vi.mock('../../src/db/prisma.js', () => ({
   prisma: { execution: mockPrismaExecution },
@@ -14,6 +15,7 @@ const { executionRepository } = await import('../../src/repositories/ExecutionRe
 const baseExecution = {
   id: 'exec-1',
   jobId: 'job-1',
+  bullmqJobId: 'bullmq-id-1',
   attempt: 1,
   status: 'STARTED' as const,
   startedAt: new Date('2099-01-01T00:00:00.000Z'),
@@ -26,44 +28,57 @@ describe('ExecutionRepository', () => {
 
   describe('create', () => {
     it('inserts with STARTED status and current time', async () => {
-      mockPrismaExecution.create.mockResolvedValue(baseExecution);
+      mockPrismaExecution.upsert.mockResolvedValue(baseExecution);
 
       await executionRepository.create('job-1', 1, 'bullmq-id-1');
 
-      expect(mockPrismaExecution.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          jobId: 'job-1',
-          attempt: 1,
-          status: 'STARTED',
+      expect(mockPrismaExecution.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { bullmqJobId: 'bullmq-id-1' },
+          create: expect.objectContaining({ jobId: 'job-1', attempt: 1, status: 'STARTED' }),
         }),
-      });
+      );
     });
 
-    it('includes startedAt timestamp', async () => {
-      mockPrismaExecution.create.mockResolvedValue(baseExecution);
+    it('includes startedAt timestamp in create and update', async () => {
+      mockPrismaExecution.upsert.mockResolvedValue(baseExecution);
 
       await executionRepository.create('job-1', 2, 'bullmq-id-2');
 
-      const call = mockPrismaExecution.create.mock.calls[0]![0];
-      expect(call.data.startedAt).toBeInstanceOf(Date);
+      const call = mockPrismaExecution.upsert.mock.calls[0]![0];
+      expect(call.create.startedAt).toBeInstanceOf(Date);
+      expect(call.update.startedAt).toBeInstanceOf(Date);
     });
 
     it('returns the created execution', async () => {
-      mockPrismaExecution.create.mockResolvedValue(baseExecution);
+      mockPrismaExecution.upsert.mockResolvedValue(baseExecution);
 
-      const result = await executionRepository.create('job-1', 1);
+      const result = await executionRepository.create('job-1', 1, 'bullmq-id-1');
 
       expect(result).toEqual(baseExecution);
     });
 
     it('tracks attempt number correctly for retries', async () => {
-      mockPrismaExecution.create.mockResolvedValue({ ...baseExecution, attempt: 3 });
+      mockPrismaExecution.upsert.mockResolvedValue({ ...baseExecution, attempt: 3 });
 
       await executionRepository.create('job-1', 3, 'bullmq-id-3');
 
-      expect(mockPrismaExecution.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({ attempt: 3 }),
-      });
+      expect(mockPrismaExecution.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({ attempt: 3 }),
+          update: expect.objectContaining({ attempt: 3 }),
+        }),
+      );
+    });
+
+    it('resets completedAt and error to null on retry upsert', async () => {
+      mockPrismaExecution.upsert.mockResolvedValue(baseExecution);
+
+      await executionRepository.create('job-1', 2, 'bullmq-id-1');
+
+      const call = mockPrismaExecution.upsert.mock.calls[0]![0];
+      expect(call.update.completedAt).toBeNull();
+      expect(call.update.error).toBeNull();
     });
   });
 

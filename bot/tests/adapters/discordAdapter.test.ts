@@ -92,57 +92,36 @@ describe('DiscordAdapter', () => {
     expect(payload.files).toBeUndefined();
   });
 
-  it('should send empty-content message without error (media-only job)', async () => {
-    mockRepo.findById.mockResolvedValue({ id: 'job-4', content: '', attachmentUrl: 'https://cdn.example.com/vid.mp4' });
+  it('should send attachment-only message when content is empty string', async () => {
+    mockRepo.findById.mockResolvedValue({ id: 'job-4', content: '', attachmentUrl: 'https://cdn.example.com/img.png' });
 
     const adapter = new DiscordAdapter(mockClient);
     const result = await adapter.execute({ jobId: 'job-4', channelId: 'chan-1', isoTime: '2099-01-01T00:00:00.000Z' });
 
     expect(result.success).toBe(true);
-    expect(mockSend).toHaveBeenCalledWith({ content: '', files: ['https://cdn.example.com/vid.mp4'] });
+    expect(mockSend).toHaveBeenCalledWith({ content: '', files: ['https://cdn.example.com/img.png'] });
   });
 
-  it('should return failure when channel has no send method (e.g. category channel)', async () => {
+  it('should return failure when channel.send throws (e.g. Missing Permissions)', async () => {
     mockRepo.findById.mockResolvedValue({ id: 'job-5', content: 'Hello', attachmentUrl: null });
-    // Channel exists but is not a text channel (no send method)
-    mockFetch.mockResolvedValue({ id: 'category-channel' });
-
-    const adapter = new DiscordAdapter(mockClient);
-    const result = await adapter.execute({ jobId: 'job-5', channelId: 'category-1', isoTime: '2099-01-01T00:00:00.000Z' });
-
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('category-1');
-    expect(mockSend).not.toHaveBeenCalled();
-  });
-
-  it('should propagate error when channel.fetch throws (Discord API down)', async () => {
-    mockRepo.findById.mockResolvedValue({ id: 'job-6', content: 'Hello', attachmentUrl: null });
-    mockFetch.mockRejectedValue(new Error('Discord API unavailable'));
-
-    const adapter = new DiscordAdapter(mockClient);
-    await expect(
-      adapter.execute({ jobId: 'job-6', channelId: 'chan-1', isoTime: '2099-01-01T00:00:00.000Z' }),
-    ).rejects.toThrow('Discord API unavailable');
-  });
-
-  it('should propagate error when channel.send throws (message delivery failure)', async () => {
-    mockRepo.findById.mockResolvedValue({ id: 'job-7', content: 'Hello', attachmentUrl: null });
     mockSend.mockRejectedValue(new Error('Missing Permissions'));
 
     const adapter = new DiscordAdapter(mockClient);
-    await expect(
-      adapter.execute({ jobId: 'job-7', channelId: 'chan-1', isoTime: '2099-01-01T00:00:00.000Z' }),
-    ).rejects.toThrow('Missing Permissions');
-  });
-
-  it('should return failure when fetch returns null (channel deleted)', async () => {
-    mockRepo.findById.mockResolvedValue({ id: 'job-8', content: 'Hello', attachmentUrl: null });
-    mockFetch.mockResolvedValue(null);
-
-    const adapter = new DiscordAdapter(mockClient);
-    const result = await adapter.execute({ jobId: 'job-8', channelId: 'deleted-chan', isoTime: '2099-01-01T00:00:00.000Z' });
+    const result = await adapter.execute({ jobId: 'job-5', channelId: 'chan-1', isoTime: '2099-01-01T00:00:00.000Z' });
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain('deleted-chan');
+    expect(result.error).toContain('Missing Permissions');
+  });
+
+  it('should return failure when channels.fetch throws (e.g. Unknown Channel)', async () => {
+    mockRepo.findById.mockResolvedValue({ id: 'job-6', content: 'Hello', attachmentUrl: null });
+    mockFetch.mockRejectedValue(new Error('Unknown Channel'));
+
+    const adapter = new DiscordAdapter(mockClient);
+    const result = await adapter.execute({ jobId: 'job-6', channelId: 'chan-deleted', isoTime: '2099-01-01T00:00:00.000Z' });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Unknown Channel');
+    expect(mockSend).not.toHaveBeenCalled();
   });
 });

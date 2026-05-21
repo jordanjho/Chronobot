@@ -39,6 +39,7 @@ const mockExecRepo = {
   complete: vi.fn(),
   fail: vi.fn(),
   findByJobId: vi.fn(),
+  findByBullmqJobId: vi.fn(),
 };
 vi.mock('../../src/repositories/ExecutionRepository.js', () => ({
   executionRepository: mockExecRepo,
@@ -100,6 +101,7 @@ describe('worker processor function', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockExecRepo.findByBullmqJobId.mockResolvedValue(null);
     const worker = createWorker(mockClient) as { _processor: Function };
     processorFn = worker._processor;
   });
@@ -112,15 +114,16 @@ describe('worker processor function', () => {
     mockJobRepo.hardDelete.mockResolvedValue(undefined);
     mockExecRepo.complete.mockResolvedValue({});
 
+    const bullmqId = 'job-1_2099-01-01T00_00_00.000Z';
     const job = {
-      id: 'job-1:2099-01-01T00:00:00.000Z',
+      id: bullmqId,
       data: { jobId: 'job-1', channelId: 'chan-1', isoTime: '2099-01-01T00:00:00.000Z' },
       attemptsMade: 0,
     };
 
     await processorFn(job);
 
-    expect(mockExecRepo.create).toHaveBeenCalledWith('job-1', 1, 'job-1:2099-01-01T00:00:00.000Z');
+    expect(mockExecRepo.create).toHaveBeenCalledWith('job-1', 1, bullmqId);
     expect(mockAdapterExecute).toHaveBeenCalledWith({
       jobId: 'job-1',
       channelId: 'chan-1',
@@ -136,7 +139,7 @@ describe('worker processor function', () => {
     mockExecRepo.fail.mockResolvedValue({});
 
     const job = {
-      id: 'job-1:2099-01-01T00:00:00.000Z',
+      id: 'job-1_2099-01-01T00_00_00.000Z',
       data: { jobId: 'job-1', channelId: 'chan-1', isoTime: '2099-01-01T00:00:00.000Z' },
       attemptsMade: 0,
     };
@@ -207,6 +210,98 @@ describe('worker processor function', () => {
     expect(mockJobRepo.updateSendTimes).toHaveBeenCalledWith('job-1', [isoTime2]);
     expect(mockJobRepo.hardDelete).not.toHaveBeenCalled();
   });
+
+  it('should skip adapter when duplicate delivery with COMPLETED execution', async () => {
+    const bullmqId = 'job-1_2099-01-01T00_00_00.000Z';
+    mockExecRepo.findByBullmqJobId.mockResolvedValue({ id: 'exec-old', status: 'COMPLETED' });
+
+    const job = {
+      id: bullmqId,
+      data: { jobId: 'job-1', channelId: 'chan-1', isoTime: '2099-01-01T00:00:00.000Z' },
+      attemptsMade: 0,
+    };
+
+    await processorFn(job);
+
+    expect(mockAdapterExecute).not.toHaveBeenCalled();
+    expect(mockExecRepo.create).not.toHaveBeenCalled();
+    expect(mockExecRepo.complete).not.toHaveBeenCalled();
+  });
+
+  it('should re-execute when prior attempt crashed mid-flight (STARTED execution exists)', async () => {
+    const bullmqId = 'job-1_2099-01-01T00_00_00.000Z';
+    mockExecRepo.findByBullmqJobId.mockResolvedValue({ id: 'exec-stale', status: 'STARTED' });
+    mockExecRepo.create.mockResolvedValue({ id: 'exec-new' });
+    mockAdapterExecute.mockResolvedValue({ success: true, messageId: 'msg-1' });
+    mockJobRepo.findById.mockResolvedValue({ id: 'job-1', sendTimes: ['2099-01-01T00:00:00.000Z'] });
+    mockJobRepo.hardDelete.mockResolvedValue(undefined);
+    mockExecRepo.complete.mockResolvedValue({});
+
+    const job = {
+      id: bullmqId,
+      data: { jobId: 'job-1', channelId: 'chan-1', isoTime: '2099-01-01T00:00:00.000Z' },
+      attemptsMade: 1,
+    };
+
+    await processorFn(job);
+
+    expect(mockAdapterExecute).toHaveBeenCalled();
+    expect(mockExecRepo.create).toHaveBeenCalledWith('job-1', 2, bullmqId);
+    expect(mockExecRepo.complete).toHaveBeenCalledWith('exec-new');
+  });
+
+  it('should propagate error and not call complete when adapter throws directly', async () => {
+    mockExecRepo.create.mockResolvedValue({ id: 'exec-throw' });
+    mockAdapterExecute.mockRejectedValue(new Error('Discord API error'));
+
+    const job = {
+      id: 'job-1_2099-01-01T00_00_00.000Z',
+      data: { jobId: 'job-1', channelId: 'chan-1', isoTime: '2099-01-01T00:00:00.000Z' },
+      attemptsMade: 0,
+    };
+
+    await expect(processorFn(job)).rejects.toThrow('Discord API error');
+    expect(mockExecRepo.fail).not.toHaveBeenCalled();
+    expect(mockExecRepo.complete).not.toHaveBeenCalled();
+  });
+
+  it('should complete successfully when job is not found after send (orphaned BullMQ job)', async () => {
+    mockExecRepo.create.mockResolvedValue({ id: 'exec-orphan' });
+    mockAdapterExecute.mockResolvedValue({ success: true, messageId: 'msg-1' });
+    mockJobRepo.findById.mockResolvedValue(null);
+    mockExecRepo.complete.mockResolvedValue({});
+
+    const job = {
+      id: 'job-1_2099-01-01T00_00_00.000Z',
+      data: { jobId: 'job-1', channelId: 'chan-1', isoTime: '2099-01-01T00:00:00.000Z' },
+      attemptsMade: 0,
+    };
+
+    await processorFn(job);
+
+    expect(mockExecRepo.complete).toHaveBeenCalledWith('exec-orphan');
+    expect(mockJobRepo.hardDelete).not.toHaveBeenCalled();
+    expect(mockJobRepo.updateSendTimes).not.toHaveBeenCalled();
+  });
+
+  it('should pass bullmqJobId to create on first delivery', async () => {
+    const bullmqId = 'job-1_2099-01-01T00_00_00.000Z';
+    mockExecRepo.create.mockResolvedValue({ id: 'exec-5' });
+    mockAdapterExecute.mockResolvedValue({ success: true, messageId: 'msg-1' });
+    mockJobRepo.findById.mockResolvedValue({ id: 'job-1', sendTimes: ['2099-01-01T00:00:00.000Z'] });
+    mockJobRepo.hardDelete.mockResolvedValue(undefined);
+    mockExecRepo.complete.mockResolvedValue({});
+
+    const job = {
+      id: bullmqId,
+      data: { jobId: 'job-1', channelId: 'chan-1', isoTime: '2099-01-01T00:00:00.000Z' },
+      attemptsMade: 0,
+    };
+
+    await processorFn(job);
+
+    expect(mockExecRepo.create).toHaveBeenCalledWith('job-1', 1, bullmqId);
+  });
 });
 
 describe('worker failed event handler', () => {
@@ -231,6 +326,7 @@ describe('worker failed event handler', () => {
     await failedHandler(job, new Error('Adapter error'));
 
     expect(mockJobRepo.markDead).toHaveBeenCalledWith('job-1');
+    expect(mockJobRepo.markFailed).not.toHaveBeenCalled();
   });
 
   it('should NOT mark job DEAD when retries remain', async () => {
@@ -243,6 +339,7 @@ describe('worker failed event handler', () => {
     await failedHandler(job, new Error('Transient error'));
 
     expect(mockJobRepo.markDead).not.toHaveBeenCalled();
+    expect(mockJobRepo.markFailed).not.toHaveBeenCalled();
   });
 
   it('should handle null job gracefully', async () => {

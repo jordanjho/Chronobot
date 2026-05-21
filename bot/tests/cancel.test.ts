@@ -158,9 +158,9 @@ describe('jobService.cancelJob', () => {
     expect(mockRepo.delete).toHaveBeenCalledWith('uuid-4', 'user-1');
   });
 
-  it('should delete DB record without calling getJob when sendTimes is empty', async () => {
+  it('should delete DB record without touching BullMQ when sendTimes is empty', async () => {
     mockRepo.findById.mockResolvedValue({
-      id: 'uuid-5',
+      id: 'uuid-empty',
       userId: 'user-1',
       channelId: 'chan-1',
       sendTimes: [],
@@ -168,10 +168,10 @@ describe('jobService.cancelJob', () => {
     });
     mockRepo.delete.mockResolvedValue(true);
 
-    const result = await jobService.cancelJob('uuid-5', 'user-1');
+    const result = await jobService.cancelJob('uuid-empty', 'user-1');
 
     expect(result).toBe(true);
     expect(mockQueue.getJob).not.toHaveBeenCalled();
-    expect(mockRepo.delete).toHaveBeenCalledWith('uuid-5', 'user-1');
+    expect(mockRepo.delete).toHaveBeenCalledWith('uuid-empty', 'user-1');
   });
 });
