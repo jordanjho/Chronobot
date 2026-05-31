@@ -1,0 +1,62 @@
+Chronobot — Resume Bullets
+==========================
+
+Format: XYZ (Accomplished X, as measured by Y, by doing Z)
+Audience: both technical and non-technical reviewers
+Goal: clear impact + buzzwords for ATS, with enough depth for technical interviewers
+
+
+FINAL BULLETS
+=============
+
+Chronobot  |  TypeScript, Node.js, BullMQ, Redis, PostgreSQL, Prisma, Docker  |  2025
+
+  • Designed and deployed a Discord message scheduler serving 80+ users in TypeScript,
+    backed by BullMQ/Redis for async job queuing and PostgreSQL (Prisma) for persistence,
+    supporting once, daily, and weekly recurrence with per-user rate limiting
+
+  • Engineered reliable message delivery with idempotency guards to prevent duplicate sends
+    on queue re-delivery, 3-attempt exponential backoff, dead-letter tracking, and automatic
+    job recovery across bot restarts, reducing silent delivery failures
+
+  • Instrumented with 7 Prometheus metrics (enqueue counters, execution latency histograms,
+    schedule-delay tracking), containerized via multi-stage Docker, and validated by a
+    223-test Vitest suite in a GitHub Actions CI pipeline
+
+
+XYZ BREAKDOWN
+=============
+
+Bullet 1
+  X (accomplished):  Shipped a working Discord scheduler with multi-frequency recurrence
+  Y (measured by):   80+ active users
+  Z (how):           BullMQ/Redis job queue + PostgreSQL persistence + per-user rate limiting
+  Non-tech read:     "Discord message scheduler for 80+ users that handles daily/weekly repeats"
+  Tech read:         BullMQ, Redis, PostgreSQL, Prisma, TypeScript, rate limiting
+
+Bullet 2
+  X (accomplished):  Reliable delivery with no duplicate sends or silent failures
+  Y (measured by):   idempotency + retry behavior (qualitative; no false sends in production)
+  Z (how):           execution audit trail as idempotency guard, exponential backoff,
+                     dead-letter tracking, startup job restoration
+  Non-tech read:     "Messages don't send twice, retries on failure, recovers after crashes"
+  Tech read:         idempotency, at-least-once delivery, dead-letter, BullMQ retry semantics
+
+Bullet 3
+  X (accomplished):  Production observability, containerization, and test coverage
+  Y (measured by):   7 metrics, 223 tests
+  Z (how):           prom-client, multi-stage Dockerfile, Vitest + GitHub Actions CI
+  Non-tech read:     "Monitoring, Docker deployment, automated test suite"
+  Tech read:         Prometheus, Docker, Vitest, CI/CD pipeline
+
+
+NOTES
+=====
+
+- "80+ users" figure is in the README — verify this is current before submitting
+- "idempotency guards" is jargon but intentional — target interviewers will know it;
+  the surrounding phrase ("prevent duplicate sends") explains it for non-technical readers
+- If trimming to 2 bullets: drop bullet 3 and fold "223-test Vitest suite in GitHub
+  Actions CI" into bullet 2 as a trailing clause
+- ATS keywords covered: TypeScript, Node.js, BullMQ, Redis, PostgreSQL, Prisma, Docker,
+  Prometheus, GitHub Actions, Vitest, distributed systems, CI/CD

@@ -1,0 +1,19 @@
+Chronobot — Session Prompt
+==========================
+
+Working on Chronobot — a TypeScript/Node.js Discord scheduled-message bot I'm using
+as a portfolio project for Summer 2027 SWE internship applications. The stack is
+BullMQ (Redis) for delayed-job execution, PostgreSQL via Prisma for persistence,
+prom-client for Prometheus metrics, multi-stage Docker, and GitHub Actions CI.
+
+All phases (PR0–PR3C) are merged. The project is at 223 Vitest tests. See
+docs/plan.txt for the full architecture and CLAUDE.md for commands.
+
+Current task: [DESCRIBE WHAT YOU WANT TO DO]
+
+Key constraints:
+- No exactly-once delivery claims (at-least-once with idempotency guards)
+- No Kubernetes, Kafka, or pnpm monorepo
+- Phase 4 HTTP API is optional — do not start until applications are submitted (Aug–Oct 2026)
+- Commit style: plain imperative subject, no Co-Authored-By trailers, no PR label prefixes
+- All tests mock Prisma and BullMQ — no live I/O required to run the suite

@@ -1,6 +1,6 @@
 # Chronobot
 
-Chronobot is a Discord scheduling bot that currently runs as a single Node.js process with SQLite-backed persistence and in-process delayed execution.
+Chronobot is a Discord scheduling bot built in TypeScript with a BullMQ/Redis job queue, PostgreSQL persistence via Prisma, and Prometheus observability — deployed with Docker on Google Cloud Platform.
 
 It supports:
 
@@ -8,69 +8,112 @@ It supports:
 - listing a user's scheduled messages
 - editing scheduled messages
 - deleting scheduled messages
-- restoring scheduled jobs on startup
 
-## Current Architecture
+## Architecture
 
-- Entry point: `bot/index.js`
-- Commands: `bot/commands/`
-- Scheduling: `bot/scheduler/`
-- Persistence: `bot/db/database.js` and `shared/messages.db`
-- Discord client: `discord.js`
+- **Entry point**: `bot/src/index.ts`
+- **Commands**: `bot/src/commands/`
+- **Worker**: `bot/src/worker/processor.ts` — BullMQ worker with concurrency control and retry/dead-letter handling
+- **Queue**: `bot/src/queue/` — BullMQ over Redis
+- **Persistence**: PostgreSQL via Prisma ORM (`bot/prisma/schema.prisma`)
+- **Adapters**: `bot/src/adapters/` — pluggable message delivery (DiscordAdapter)
+- **Repositories**: `bot/src/repositories/` — Job and Execution data access
+- **Metrics**: `bot/src/metrics/` — Prometheus counters, histograms, gauges; `/metrics` and `/healthz` endpoints
+- **Logging**: Pino (structured JSON)
+- **Process management**: PM2 (`bot/ecosystem.config.cjs`)
+- **Containerization**: multi-stage Dockerfile + Docker Compose
+- **CI**: GitHub Actions (lint → typecheck → test → docker build)
 
-The current implementation is intentionally simple. It is not yet distributed, does not use Redis or PostgreSQL, and does not have worker pools or queue-backed scheduling.
+### Key properties
+
+- **Idempotent execution**: duplicate BullMQ deliveries are detected and skipped via an execution audit trail
+- **Retry + dead-letter**: failed jobs retry up to 3 times; exhausted jobs are marked `DEAD` in Postgres
+- **Execution audit trail**: every job attempt is recorded in the `executions` table with status, timing, and error
+- **Graceful shutdown**: `SIGTERM`/`SIGINT` drain the worker, close the metrics server, and disconnect Prisma before exiting
 
 ## Setup
 
-1. Install dependencies.
+### Prerequisites
+
+- Node.js 22+
+- PostgreSQL
+- Redis
+
+### Local development
+
+1. Start backing services.
+
+   ```bash
+   docker compose up -d postgres redis
+   ```
+
+2. Install dependencies.
 
    ```bash
    cd bot
    npm install
    ```
 
-2. Configure environment variables in `bot/.env`.
+3. Configure environment variables in `bot/.env`.
 
    ```env
-   token=YOUR_BOT_TOKEN
-   clientId=YOUR_CLIENT_ID
-   guildId=YOUR_GUILD_ID
+   DISCORD_TOKEN=YOUR_BOT_TOKEN
+   CLIENT_ID=YOUR_CLIENT_ID
+   GUILD_ID=YOUR_GUILD_ID
+   DATABASE_URL=postgresql://chronobot:chronobot@localhost:5433/chronobot
+   REDIS_URL=redis://localhost:6379
+   METRICS_PORT=9090  # optional, defaults to 9090
    ```
 
-3. Run the bot.
+4. Run Prisma migrations.
 
    ```bash
-   node index.js
+   npx prisma migrate deploy
    ```
+
+5. Register slash commands.
+
+   ```bash
+   npm run deploy-commands
+   ```
+
+6. Start the bot.
+
+   ```bash
+   npm start
+   ```
+
+### Docker
+
+```bash
+docker compose up --build
+```
+
+The `bot` service requires `DATABASE_URL` and `REDIS_URL` pointing to the compose service names (`postgres`, `redis`).
 
 ## Commands
 
-- `/schedule` - schedule a message with a frequency, timestamp, optional content, and optional attachment
-- `/list` - list your scheduled messages
-- `/edit` - update a scheduled message you own
-- `/delete` - delete a scheduled message you own
-- `/help` - show the available commands
+- `/schedule <frequency> <timestamp> [content] [attachment]` — schedule a message; frequency is `once`, `daily`, or `weekly`; timestamp format `YYYY-MM-DD HH:mm` (UTC)
+- `/list` — list your scheduled messages
+- `/edit <id> [content] [attachment]` — update a scheduled message you own
+- `/delete <id>` — delete a scheduled message you own
+- `/help` — show the available commands
 
-## Known Gaps
+## Testing
 
-- The codebase is still single-process.
-- Timezone support is documented in places but not fully implemented.
-- The current scheduling path is process-local and relies on `node-schedule`.
-- Some legacy files and docs still need cleanup so the repository matches the runtime behavior.
+```bash
+cd bot
+npm test
+```
 
-## Roadmap
+223 tests via Vitest covering every command handler, service, worker, repository, adapter, and metrics layer — all I/O mocked, no live database or Redis required.
 
-The working plan is documented in [docs/plan.txt](docs/plan.txt).
+## Design Goals
 
-The main direction is to evolve Chronobot into a reliable asynchronous job orchestration platform with:
+This project demonstrates reliability engineering and production backend architecture:
 
-- adapter-based execution
-- idempotent job handling
-- retry and dead-letter semantics
-- durable persistence
-- observability
-- containerized deployment
-
-## Why This Project Exists
-
-The goal is not to build a more feature-rich Discord bot. The goal is to turn Chronobot into a backend systems project that demonstrates reliability engineering, async execution, and clean architecture.
+- **At-least-once delivery** with idempotency guards (execution audit trail prevents duplicate Discord sends on BullMQ re-delivery)
+- **Retry + dead-letter**: 3 attempts with exponential backoff; exhausted jobs marked `DEAD` and cleaned up on restart
+- **Crash recovery**: `restoreJobs` on startup prunes stale send-times and re-enqueues all `QUEUED` jobs
+- **Observability**: 7 Prometheus metrics (counters, histograms, gauges) + `/healthz` endpoint
+- **Adapter abstraction**: `DiscordAdapter` is one implementation of `Adapter`; the scheduler is not Discord-specific
