@@ -10,7 +10,7 @@ export function startMetricsServer(): http.Server {
         const metrics = await registry.metrics();
         res.writeHead(200, { 'Content-Type': registry.contentType });
         res.end(metrics);
-      } catch (err) {
+      } catch {
         res.writeHead(500);
         res.end('metrics error');
       }
