@@ -103,7 +103,7 @@ describe('JobRepository', () => {
   it('countByUserId queries by userId', async () => {
     mockPrisma.job.count.mockResolvedValue(3);
     const count = await repo.countByUserId('user-xyz');
-    expect(mockPrisma.job.count).toHaveBeenCalledWith({ where: { userId: 'user-xyz' } });
+    expect(mockPrisma.job.count).toHaveBeenCalledWith({ where: { userId: 'user-xyz', status: 'QUEUED' } });
     expect(count).toBe(3);
   });
 
