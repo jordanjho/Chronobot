@@ -130,6 +130,12 @@ export default {
 
     const tzNote = tz ? ` (interpreted as ${tz})` : ' (UTC)';
     logger.info({ command: 'schedule', userId, channelId, messageId: job.id, tz }, `Message scheduled for ${baseTime.toISOString()}`);
-    await interaction.editReply(`Message scheduled with ID ${job.id}${tzNote}`);
+
+    const attachmentWarning =
+      attachment && times.some((t) => Date.now() + 24 * 60 * 60 * 1000 < new Date(t).getTime())
+        ? '\n⚠️ Discord attachment URLs expire in ~24 hours; future occurrences may not deliver the attachment.'
+        : '';
+
+    await interaction.editReply(`Message scheduled with ID ${job.id}${tzNote}${attachmentWarning}`);
   },
 };

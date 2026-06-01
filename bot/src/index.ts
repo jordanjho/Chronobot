@@ -70,12 +70,23 @@ client.once('ready', () => {
 let worker: ReturnType<typeof createWorker> | null = null;
 let metricsServer: ReturnType<typeof startMetricsServer> | null = null;
 
+const WORKER_DRAIN_TIMEOUT_MS = 30_000;
+
 async function shutdown(): Promise<void> {
   await new Promise<void>((resolve) => {
     if (metricsServer) metricsServer.close(() => resolve());
     else resolve();
   });
-  if (worker) await worker.close();
+  if (worker) {
+    await Promise.race([
+      worker.close(),
+      new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error('Worker drain timed out')), WORKER_DRAIN_TIMEOUT_MS),
+      ),
+    ]).catch((err: unknown) => {
+      logger.error({ error: (err as Error).message }, 'Worker drain timed out — forcing shutdown');
+    });
+  }
   await prisma.$disconnect();
   process.exit(0);
 }
