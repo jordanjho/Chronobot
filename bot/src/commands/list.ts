@@ -25,12 +25,12 @@ export default {
     logger.info({ command: 'list', userId }, `Listing messages for user ${userId}`);
 
     const formatted = rows
-      .map(
-        (r) =>
-          `ID: ${r.id}\nChannel: <#${r.channelId}>\nTimes: ${r.sendTimes.join(', ')}\nContent: ${
-            r.content || '[media only]'
-          }\nAttachment: ${r.attachmentUrl ?? 'None'}\n`,
-      )
+      .map((r) => {
+        const futureTimes = r.sendTimes.filter((t) => dayjs.utc(t).isAfter(now));
+        return `ID: ${r.id}\nChannel: <#${r.channelId}>\nTimes: ${futureTimes.join(', ')}\nContent: ${
+          r.content || '[media only]'
+        }\nAttachment: ${r.attachmentUrl ?? 'None'}\n`;
+      })
       .join('\n---\n');
 
     await interaction.editReply(`**Your Scheduled Messages:**\n\n${formatted}`);

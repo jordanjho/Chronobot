@@ -76,12 +76,23 @@ export function createWorker(client: Client): Worker<QueuedJobData> {
 
   worker.on('failed', async (job, err) => {
     if (!job) return;
-    const { jobId } = job.data;
+    const { jobId, channelId } = job.data;
     if (job.attemptsMade >= (job.opts.attempts ?? 3)) {
       jobsFailed.labels({ final: 'true' }).inc();
       jobsDead.inc();
       await jobRepository.markDead(jobId);
       logger.error({ jobId, error: err.message }, 'Job exhausted retries — marked DEAD');
+
+      try {
+        const ch = await client.channels.fetch(channelId);
+        if (ch?.isTextBased() && 'send' in ch) {
+          await (ch as { send(msg: string): Promise<unknown> }).send(
+            `Your scheduled message (ID: \`${jobId}\`) could not be delivered after 3 attempts and has been cancelled.`,
+          );
+        }
+      } catch (notifyErr) {
+        logger.warn({ jobId, channelId, error: (notifyErr as Error).message }, 'Failed to send DEAD-job notification');
+      }
     }
     else {
       logger.warn({ jobId, attempt: job.attemptsMade, error: err.message }, 'Job attempt failed, will retry');

@@ -78,7 +78,14 @@ vi.mock('bullmq', () => ({
 const { createWorker } = await import('../../src/worker/processor.js');
 const { Worker } = await import('bullmq');
 
-const mockClient = {} as never;
+const mockChannelSend = vi.fn().mockResolvedValue(undefined);
+const mockFetchChannel = vi.fn().mockResolvedValue({
+  isTextBased: () => true,
+  send: mockChannelSend,
+});
+const mockClient = {
+  channels: { fetch: mockFetchChannel },
+} as never;
 
 describe('createWorker', () => {
   beforeEach(() => {
@@ -318,7 +325,7 @@ describe('worker failed event handler', () => {
   it('should mark job DEAD when attempts exhausted', async () => {
     mockJobRepo.markDead.mockResolvedValue({});
     const job = {
-      data: { jobId: 'job-1' },
+      data: { jobId: 'job-1', channelId: 'chan-1' },
       attemptsMade: 3,
       opts: { attempts: 3 },
     };
@@ -331,7 +338,7 @@ describe('worker failed event handler', () => {
 
   it('should NOT mark job DEAD when retries remain', async () => {
     const job = {
-      data: { jobId: 'job-1' },
+      data: { jobId: 'job-1', channelId: 'chan-1' },
       attemptsMade: 1,
       opts: { attempts: 3 },
     };
@@ -340,6 +347,50 @@ describe('worker failed event handler', () => {
 
     expect(mockJobRepo.markDead).not.toHaveBeenCalled();
     expect(mockJobRepo.markFailed).not.toHaveBeenCalled();
+  });
+
+  it('should notify the channel when a job is marked DEAD', async () => {
+    mockJobRepo.markDead.mockResolvedValue({});
+    const job = {
+      data: { jobId: 'job-dead-notify', channelId: 'chan-dead' },
+      attemptsMade: 3,
+      opts: { attempts: 3 },
+    };
+
+    await failedHandler(job, new Error('Exhausted'));
+
+    expect(mockFetchChannel).toHaveBeenCalledWith('chan-dead');
+    expect(mockChannelSend).toHaveBeenCalledWith(
+      expect.stringContaining('job-dead-notify'),
+    );
+  });
+
+  it('should silently swallow notification errors so markDead still succeeds', async () => {
+    mockJobRepo.markDead.mockResolvedValue({});
+    mockFetchChannel.mockRejectedValueOnce(new Error('Channel not found'));
+    const job = {
+      data: { jobId: 'job-notify-fail', channelId: 'chan-gone' },
+      attemptsMade: 3,
+      opts: { attempts: 3 },
+    };
+
+    await expect(failedHandler(job, new Error('Exhausted'))).resolves.toBeUndefined();
+    expect(mockJobRepo.markDead).toHaveBeenCalledWith('job-notify-fail');
+  });
+
+  it('should not notify when channel is not text-based', async () => {
+    mockJobRepo.markDead.mockResolvedValue({});
+    mockFetchChannel.mockResolvedValueOnce({ isTextBased: () => false });
+    const job = {
+      data: { jobId: 'job-no-text', channelId: 'chan-voice' },
+      attemptsMade: 3,
+      opts: { attempts: 3 },
+    };
+
+    await failedHandler(job, new Error('Exhausted'));
+
+    expect(mockChannelSend).not.toHaveBeenCalled();
+    expect(mockJobRepo.markDead).toHaveBeenCalledWith('job-no-text');
   });
 
   it('should handle null job gracefully', async () => {
@@ -421,7 +472,7 @@ describe('worker failed event handler — metrics', () => {
 
   it('increments jobsFailed final=true and jobsDead on retry exhaustion', async () => {
     mockJobRepo.markDead.mockResolvedValue({});
-    const job = { data: { jobId: 'job-1' }, attemptsMade: 3, opts: { attempts: 3 } };
+    const job = { data: { jobId: 'job-1', channelId: 'chan-1' }, attemptsMade: 3, opts: { attempts: 3 } };
 
     await failedHandler(job, new Error('Exhausted'));
 

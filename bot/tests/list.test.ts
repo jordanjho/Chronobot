@@ -314,4 +314,30 @@ describe('list command', () => {
     const reply = interaction.editReply.mock.calls[0][0] as string;
     expect(reply).toContain('uuid-mixed');
   });
+
+  it('should exclude stale sendTimes from the display even when job is shown', async () => {
+    const pastTime = new Date(Date.now() - 3600000).toISOString();
+    const futureTime = new Date(Date.now() + 3600000).toISOString();
+    mockRepo.findQueuedByUserId.mockResolvedValue([
+      {
+        id: 'uuid-stale-display',
+        channelId: 'chan-1',
+        sendTimes: [pastTime, futureTime],
+        content: 'Daily job',
+        frequency: 'daily',
+        attachmentUrl: null,
+        userId: 'user-123',
+        status: 'QUEUED',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await listCommand.execute(interaction as any);
+
+    const reply = interaction.editReply.mock.calls[0][0] as string;
+    expect(reply).toContain(futureTime);
+    expect(reply).not.toContain(pastTime);
+  });
 });
