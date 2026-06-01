@@ -1,19 +1,28 @@
 Chronobot — Session Prompt
 ==========================
 
-Working on Chronobot — a TypeScript/Node.js Discord scheduled-message bot I'm using
+Working on Chronobot — a TypeScript/Node.js Discord scheduled-message bot used
 as a portfolio project for Summer 2027 SWE internship applications. The stack is
 BullMQ (Redis) for delayed-job execution, PostgreSQL via Prisma for persistence,
 prom-client for Prometheus metrics, multi-stage Docker, and GitHub Actions CI.
 
-All phases (PR0–PR3C) are merged. The project is at 223 Vitest tests. See
-docs/plan.txt for the full architecture and CLAUDE.md for commands.
+Current state (as of 2026-06-01):
+- All phases complete: PR0 (TypeScript), PR1 (Postgres/Prisma), PR2 (BullMQ worker),
+  PR3A (idempotency + DEAD status), PR3B (Prometheus metrics), PR3C (Docker + CI)
+- Post-PR3 features also shipped: /timezone set command (DST-safe via dayjs.tz),
+  DEAD-job channel notifications, /list stale-time filtering, attachment URL expiry
+  warning, Discord 2000-char content guard, 30s worker drain timeout on shutdown
+- 248 Vitest unit tests across 19 test files; zero real I/O (all mocked)
+- Sole author: jordanjho <jordanjho@gmail.com>; conventional commit subjects, no bodies
+- See docs/plan.txt for full architecture and docs/improvements.txt for future ideas
 
 Current task: [DESCRIBE WHAT YOU WANT TO DO]
 
 Key constraints:
 - No exactly-once delivery claims (at-least-once with idempotency guards)
 - No Kubernetes, Kafka, or pnpm monorepo
-- Phase 4 HTTP API is optional — do not start until applications are submitted (Aug–Oct 2026)
-- Commit style: plain imperative subject, no Co-Authored-By trailers, no PR label prefixes
+- Phase 4 HTTP API is optional — do not start until applications submitted (Aug–Oct 2026)
+- Commit style: short conventional subject only — <type>(<scope>): <description>
+  No body, no Co-Authored-By trailers, no PR label prefixes
 - All tests mock Prisma and BullMQ — no live I/O required to run the suite
+- Fan out subagents and document as you go
