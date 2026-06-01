@@ -2,13 +2,46 @@ import { SlashCommandBuilder } from 'discord.js';
 import type { ChatInputCommandInteraction, Client } from 'discord.js';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
+import timezone from 'dayjs/plugin/timezone.js';
 import { jobRepository } from '../repositories/JobRepository.js';
+import { userPreferenceRepository } from '../repositories/UserPreferenceRepository.js';
 import { jobService } from '../services/JobService.js';
 import logger from '../utils/logger.js';
 
 dayjs.extend(utc);
+dayjs.extend(timezone);
 
 const frequencies = ['once', 'daily', 'weekly'] as const;
+
+function expandSendTimes(
+  timestamp: string,
+  frequency: (typeof frequencies)[number],
+  tz: string | null,
+): string[] {
+  const times: string[] = [];
+  if (frequency === 'once') {
+    const t = tz
+      ? dayjs.tz(timestamp, 'YYYY-MM-DD HH:mm', tz)
+      : dayjs.utc(timestamp, 'YYYY-MM-DD HH:mm');
+    times.push(t.toISOString());
+  } else if (frequency === 'daily') {
+    for (let i = 0; i < 7; i++) {
+      // Adding calendar days in local timezone is DST-safe: 9am ET stays 9am ET after DST
+      const t = tz
+        ? dayjs.tz(timestamp, 'YYYY-MM-DD HH:mm', tz).add(i, 'day')
+        : dayjs.utc(timestamp, 'YYYY-MM-DD HH:mm').add(i, 'day');
+      times.push(t.toISOString());
+    }
+  } else {
+    for (let i = 0; i < 4; i++) {
+      const t = tz
+        ? dayjs.tz(timestamp, 'YYYY-MM-DD HH:mm', tz).add(i, 'week')
+        : dayjs.utc(timestamp, 'YYYY-MM-DD HH:mm').add(i, 'week');
+      times.push(t.toISOString());
+    }
+  }
+  return times;
+}
 
 export default {
   data: new SlashCommandBuilder()
@@ -23,7 +56,7 @@ export default {
     .addStringOption((opt) =>
       opt
         .setName('timestamp')
-        .setDescription('Format: YYYY-MM-DD HH:mm (UTC)')
+        .setDescription('Format: YYYY-MM-DD HH:mm (in your stored timezone, or UTC if none set)')
         .setRequired(true),
     )
     .addStringOption((opt) =>
@@ -35,6 +68,7 @@ export default {
     .addAttachmentOption((opt) =>
       opt.setName('attachment').setDescription('Optional image/video/gif'),
     ),
+
   async execute(interaction: ChatInputCommandInteraction): Promise<void> {
     const { options } = interaction;
     const client = interaction.client as Client;
@@ -51,17 +85,26 @@ export default {
       return;
     }
 
-    const baseTime = dayjs.utc(timestamp, 'YYYY-MM-DD HH:mm');
+    const pref = await userPreferenceRepository.findByUserId(userId);
+    const tz = pref?.timezone ?? null;
+
+    const baseTime = tz
+      ? dayjs.tz(timestamp, 'YYYY-MM-DD HH:mm', tz)
+      : dayjs.utc(timestamp, 'YYYY-MM-DD HH:mm');
     const now = dayjs.utc();
 
-    logger.info({ command: 'schedule', userId, channelId, timestamp }, `Scheduling message for ${baseTime.format()}`);
+    if (!baseTime.isValid()) {
+      await interaction.editReply('Invalid timestamp format. Use: YYYY-MM-DD HH:mm.');
+      return;
+    }
 
-    if (!baseTime.isValid() || baseTime.isBefore(now.add(10, 'second'))) {
-      logger.warn(
-        { command: 'schedule', userId, valid: baseTime.isValid(), beforeNow: baseTime.isBefore(now.add(10, 'second')) },
-        'Invalid or past timestamp provided',
-      );
-      await interaction.editReply('Invalid or distant timestamp. Format: YYYY-MM-DD HH:mm UTC.');
+    if (baseTime.toDate() <= now.add(10, 'second').toDate()) {
+      await interaction.editReply('Timestamp must be at least 10 seconds in the future.');
+      return;
+    }
+
+    if (content.length > 2000) {
+      await interaction.editReply('Message content must be 2000 characters or fewer.');
       return;
     }
 
@@ -71,16 +114,7 @@ export default {
       return;
     }
 
-    const times: string[] = [];
-    if (frequency === 'once') times.push(baseTime.toISOString());
-    else if (frequency === 'daily') {
-      for (let i = 0; i < 7; i++)
-        times.push(baseTime.add(i, 'day').toISOString());
-    }
-    else if (frequency === 'weekly') {
-      for (let i = 0; i < 4; i++)
-        times.push(baseTime.add(i, 'week').toISOString());
-    }
+    const times = expandSendTimes(timestamp, frequency as (typeof frequencies)[number], tz);
 
     const job = await jobService.createJob(
       {
@@ -94,7 +128,8 @@ export default {
       client,
     );
 
-    logger.info({ command: 'schedule', userId, channelId, messageId: job.id }, `Message scheduled with ID ${job.id}`);
-    await interaction.editReply(`Message scheduled with ID ${job.id}`);
+    const tzNote = tz ? ` (interpreted as ${tz})` : ' (UTC)';
+    logger.info({ command: 'schedule', userId, channelId, messageId: job.id, tz }, `Message scheduled for ${baseTime.toISOString()}`);
+    await interaction.editReply(`Message scheduled with ID ${job.id}${tzNote}`);
   },
 };

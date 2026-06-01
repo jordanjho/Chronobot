@@ -50,3 +50,12 @@ enum ExecutionStatus {
   COMPLETED
   FAILED
 }
+
+model UserPreference {
+  userId    String   @id @map("user_id")
+  timezone  String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("user_preferences")
+}

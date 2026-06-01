@@ -14,6 +14,15 @@ vi.mock('../src/utils/logger.js', () => ({
   },
 }));
 
+// Mock UserPreferenceRepository
+const mockUserPrefRepo = {
+  findByUserId: vi.fn().mockResolvedValue(null),
+  upsert: vi.fn(),
+};
+vi.mock('../src/repositories/UserPreferenceRepository.js', () => ({
+  userPreferenceRepository: mockUserPrefRepo,
+}));
+
 // Mock JobRepository (still used for countByUserId in schedule command)
 const mockRepo = {
   countByUserId: vi.fn(),
@@ -49,6 +58,7 @@ describe('schedule command', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUserPrefRepo.findByUserId.mockResolvedValue(null);
     interaction = createMockInteraction({ commandName: 'schedule' });
     interaction.options.getString.mockImplementation((name: string) => {
       if (name === 'frequency') return 'once';
@@ -97,7 +107,7 @@ describe('schedule command', () => {
     await scheduleCommand.execute(interaction as any);
 
     expect(interaction.editReply).toHaveBeenCalledWith(
-      'Invalid or distant timestamp. Format: YYYY-MM-DD HH:mm UTC.',
+      'Timestamp must be at least 10 seconds in the future.',
     );
   });
 
@@ -112,7 +122,7 @@ describe('schedule command', () => {
     await scheduleCommand.execute(interaction as any);
 
     expect(interaction.editReply).toHaveBeenCalledWith(
-      'Invalid or distant timestamp. Format: YYYY-MM-DD HH:mm UTC.',
+      'Invalid timestamp format. Use: YYYY-MM-DD HH:mm.',
     );
   });
 
@@ -134,7 +144,7 @@ describe('schedule command', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await scheduleCommand.execute(interaction as any);
 
-    expect(interaction.editReply).toHaveBeenCalledWith('Message scheduled with ID uuid-slot5');
+    expect(interaction.editReply).toHaveBeenCalledWith(expect.stringContaining('Message scheduled with ID uuid-slot5'));
   });
 
   it('should schedule a once message successfully', async () => {
@@ -144,7 +154,7 @@ describe('schedule command', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await scheduleCommand.execute(interaction as any);
 
-    expect(interaction.editReply).toHaveBeenCalledWith('Message scheduled with ID uuid-1');
+    expect(interaction.editReply).toHaveBeenCalledWith(expect.stringContaining('Message scheduled with ID uuid-1'));
     expect(mockJobService.createJob).toHaveBeenCalledTimes(1);
   });
 
@@ -206,7 +216,7 @@ describe('schedule command', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await scheduleCommand.execute(interaction as any);
 
-    expect(interaction.editReply).toHaveBeenCalledWith('Message scheduled with ID uuid-ok');
+    expect(interaction.editReply).toHaveBeenCalledWith(expect.stringContaining('Message scheduled with ID uuid-ok'));
   });
 
   it('should reject timestamp within 10 seconds of now', async () => {
@@ -222,7 +232,7 @@ describe('schedule command', () => {
     await scheduleCommand.execute(interaction as any);
 
     expect(interaction.editReply).toHaveBeenCalledWith(
-      'Invalid or distant timestamp. Format: YYYY-MM-DD HH:mm UTC.',
+      'Timestamp must be at least 10 seconds in the future.',
     );
   });
 
@@ -338,7 +348,7 @@ describe('schedule command', () => {
     await scheduleCommand.execute(interaction as any);
 
     expect(mockJobService.createJob).toHaveBeenCalledOnce();
-    expect(interaction.editReply).toHaveBeenCalledWith('Message scheduled with ID uuid-at-4');
+    expect(interaction.editReply).toHaveBeenCalledWith(expect.stringContaining('Message scheduled with ID uuid-at-4'));
   });
 
   it('should pass userId to createJob correctly', async () => {
@@ -371,6 +381,7 @@ describe('schedule — timestamp boundary (10-second guard)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUserPrefRepo.findByUserId.mockResolvedValue(null);
     vi.useFakeTimers();
     // "now" is at 55 seconds into the minute
     vi.setSystemTime(new Date('2099-06-01T10:00:55.000Z'));
@@ -395,7 +406,7 @@ describe('schedule — timestamp boundary (10-second guard)', () => {
     await scheduleCommand.execute(interaction as any);
 
     expect(interaction.editReply).toHaveBeenCalledWith(
-      'Invalid or distant timestamp. Format: YYYY-MM-DD HH:mm UTC.',
+      'Timestamp must be at least 10 seconds in the future.',
     );
   });
 
@@ -412,7 +423,7 @@ describe('schedule — timestamp boundary (10-second guard)', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await scheduleCommand.execute(interaction as any);
 
-    expect(interaction.editReply).toHaveBeenCalledWith('Message scheduled with ID future-id');
+    expect(interaction.editReply).toHaveBeenCalledWith(expect.stringContaining('Message scheduled with ID future-id'));
   });
 });
 
@@ -421,6 +432,7 @@ describe('schedule — sendTime interval correctness', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUserPrefRepo.findByUserId.mockResolvedValue(null);
     interaction = createMockInteraction({ commandName: 'schedule' });
     interaction.options.getAttachment.mockReturnValue(null);
     mockRepo.countByUserId.mockResolvedValue(0);
@@ -509,5 +521,121 @@ describe('schedule — sendTime interval correctness', () => {
 
     expect(capturedTimes).toHaveLength(1);
     expect(new Date(capturedTimes[0]!).toISOString()).toBe('2099-12-25T10:00:00.000Z');
+  });
+});
+
+describe('schedule — timezone support', () => {
+  let interaction: ReturnType<typeof createMockInteraction>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUserPrefRepo.findByUserId.mockResolvedValue(null);
+    interaction = createMockInteraction({ commandName: 'schedule' });
+    interaction.options.getAttachment.mockReturnValue(null);
+    mockRepo.countByUserId.mockResolvedValue(0);
+  });
+
+  it('parses timestamp in UTC when no timezone is stored', async () => {
+    interaction.options.getString.mockImplementation((name: string) => {
+      if (name === 'frequency') return 'once';
+      if (name === 'timestamp') return '2099-06-01 09:00';
+      if (name === 'content') return 'hi';
+      return null;
+    });
+
+    let capturedTimes: string[] = [];
+    mockJobService.createJob.mockImplementation((data: { sendTimes: string[] }) => {
+      capturedTimes = data.sendTimes;
+      return Promise.resolve({ id: 'uuid-utc', sendTimes: data.sendTimes });
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await scheduleCommand.execute(interaction as any);
+
+    expect(new Date(capturedTimes[0]!).toISOString()).toBe('2099-06-01T09:00:00.000Z');
+  });
+
+  it('parses timestamp in stored timezone when one is set', async () => {
+    // UTC-5 (EST): 09:00 local = 14:00 UTC
+    mockUserPrefRepo.findByUserId.mockResolvedValue({ timezone: 'America/New_York' });
+    interaction.options.getString.mockImplementation((name: string) => {
+      if (name === 'frequency') return 'once';
+      if (name === 'timestamp') return '2099-01-15 09:00';
+      if (name === 'content') return 'hi';
+      return null;
+    });
+
+    let capturedTimes: string[] = [];
+    mockJobService.createJob.mockImplementation((data: { sendTimes: string[] }) => {
+      capturedTimes = data.sendTimes;
+      return Promise.resolve({ id: 'uuid-tz', sendTimes: data.sendTimes });
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await scheduleCommand.execute(interaction as any);
+
+    // Jan 15 is in EST (UTC-5): 09:00 EST = 14:00 UTC
+    expect(new Date(capturedTimes[0]!).toISOString()).toBe('2099-01-15T14:00:00.000Z');
+  });
+
+  it('reply includes (UTC) note when no timezone is stored', async () => {
+    interaction.options.getString.mockImplementation((name: string) => {
+      if (name === 'frequency') return 'once';
+      if (name === 'timestamp') return '2099-06-01 09:00';
+      return null;
+    });
+    mockJobService.createJob.mockResolvedValue({ id: 'uuid-utc-note', sendTimes: [] });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await scheduleCommand.execute(interaction as any);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(expect.stringContaining('(UTC)'));
+  });
+
+  it('reply includes timezone name when a timezone is stored', async () => {
+    mockUserPrefRepo.findByUserId.mockResolvedValue({ timezone: 'Europe/Berlin' });
+    interaction.options.getString.mockImplementation((name: string) => {
+      if (name === 'frequency') return 'once';
+      if (name === 'timestamp') return '2099-06-01 09:00';
+      return null;
+    });
+    mockJobService.createJob.mockResolvedValue({ id: 'uuid-tz-note', sendTimes: [] });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await scheduleCommand.execute(interaction as any);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(expect.stringContaining('Europe/Berlin'));
+  });
+
+  it('rejects content longer than 2000 characters', async () => {
+    interaction.options.getString.mockImplementation((name: string) => {
+      if (name === 'frequency') return 'once';
+      if (name === 'timestamp') return '2099-06-01 09:00';
+      if (name === 'content') return 'a'.repeat(2001);
+      return null;
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await scheduleCommand.execute(interaction as any);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      'Message content must be 2000 characters or fewer.',
+    );
+    expect(mockJobService.createJob).not.toHaveBeenCalled();
+  });
+
+  it('accepts content exactly 2000 characters long', async () => {
+    interaction.options.getString.mockImplementation((name: string) => {
+      if (name === 'frequency') return 'once';
+      if (name === 'timestamp') return '2099-06-01 09:00';
+      if (name === 'content') return 'a'.repeat(2000);
+      return null;
+    });
+    mockJobService.createJob.mockResolvedValue({ id: 'uuid-max-content', sendTimes: [] });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await scheduleCommand.execute(interaction as any);
+
+    expect(mockJobService.createJob).toHaveBeenCalledOnce();
   });
 });
